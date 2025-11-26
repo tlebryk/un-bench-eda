@@ -13,18 +13,22 @@ from pathlib import Path
 DATA_DIR = Path("data/raw/xml")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-def fetch_session_resolutions(session: int, output_file: str = None):
+def fetch_session_resolutions(session: int, output_file: str = None, base_dir: str = "data"):
     """
     Fetch all resolutions for a given session and save to XML file.
 
     Args:
         session: GA session number (e.g., 78)
-        output_file: Path to save XML (default: data/raw/xml/session_{session}_resolutions.xml)
+        output_file: Path to save XML (default: {base_dir}/raw/xml/session_{session}_resolutions.xml)
+        base_dir: Base data directory (default: "data")
     """
     if output_file is None:
-        output_file = DATA_DIR / f"session_{session}_resolutions.xml"
+        data_dir = Path(base_dir) / "raw" / "xml"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        output_file = data_dir / f"session_{session}_resolutions.xml"
     else:
         output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
     params = {
@@ -57,19 +61,23 @@ def fetch_session_resolutions(session: int, output_file: str = None):
         return None
 
 
-def fetch_committee_drafts(committee: int, session: int, output_file: str = None):
+def fetch_committee_drafts(committee: int, session: int, output_file: str = None, base_dir: str = "data"):
     """
     Fetch all draft resolutions for a committee and session.
 
     Args:
         committee: Committee number (1-6)
         session: GA session number
-        output_file: Path to save XML (default: data/raw/xml/session_{session}_committee_{committee}_drafts.xml)
+        output_file: Path to save XML (default: {base_dir}/raw/xml/session_{session}_committee_{committee}_drafts.xml)
+        base_dir: Base data directory (default: "data")
     """
     if output_file is None:
-        output_file = DATA_DIR / f"session_{session}_committee_{committee}_drafts.xml"
+        data_dir = Path(base_dir) / "raw" / "xml"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        output_file = data_dir / f"session_{session}_committee_{committee}_drafts.xml"
     else:
         output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
     params = {
@@ -96,17 +104,19 @@ def fetch_committee_drafts(committee: int, session: int, output_file: str = None
 
 if __name__ == "__main__":
     session = int(sys.argv[1]) if len(sys.argv) > 1 else 78
+    base_dir = sys.argv[2] if len(sys.argv) > 2 else "data"
 
     print("="*60)
     print(f"UN METADATA FETCHER - Session {session}")
+    print(f"Base directory: {base_dir}")
     print("="*60)
 
     # Fetch resolutions
-    fetch_session_resolutions(session)
+    fetch_session_resolutions(session, base_dir=base_dir)
 
     print()
 
     # Fetch committee drafts
     for committee in range(1, 7):
-        fetch_committee_drafts(committee, session)
+        fetch_committee_drafts(committee, session, base_dir=base_dir)
         print()

@@ -58,7 +58,8 @@ def download_documents_from_metadata(json_file: str,
                                        output_dir: str = None,
                                        language: str = "English",
                                        max_docs: int = None,
-                                       english_only: bool = True):
+                                       english_only: bool = True,
+                                       base_dir: str = "data"):
     """
     Download PDFs for documents in metadata JSON.
 
@@ -82,14 +83,23 @@ def download_documents_from_metadata(json_file: str,
     # Auto-detect output directory based on filename
     if output_dir is None:
         json_filename = Path(json_file).name
+        # Auto-detect base directory from input path
+        json_parts = Path(json_file).parts
+        if 'test_data' in json_parts:
+            base_data_dir = Path('test_data')
+        elif 'data' in json_parts:
+            base_data_dir = Path('data')
+        else:
+            base_data_dir = Path(base_dir)
+        
         if 'resolutions' in json_filename:
-            output_path = RESOLUTIONS_DIR
+            output_path = base_data_dir / "documents" / "pdfs" / "resolutions"
             print(f"Auto-detected: Saving resolutions to {output_path}")
         elif 'draft' in json_filename:
-            output_path = DRAFTS_DIR
+            output_path = base_data_dir / "documents" / "pdfs" / "drafts"
             print(f"Auto-detected: Saving drafts to {output_path}")
         else:
-            output_path = Path("data/documents/pdfs/other")
+            output_path = base_data_dir / "documents" / "pdfs" / "other"
             output_path.mkdir(parents=True, exist_ok=True)
             print(f"Unknown type: Saving to {output_path}")
     else:
@@ -214,4 +224,13 @@ if __name__ == "__main__":
     else:
         print(f"Output: Auto-detect based on filename")
 
-    download_documents_from_metadata(json_file, output_dir, "English", max_docs, english_only)
+    # Auto-detect base directory from input path
+    json_parts = Path(json_file).parts
+    if 'test_data' in json_parts:
+        base_dir = 'test_data'
+    elif 'data' in json_parts:
+        base_dir = 'data'
+    else:
+        base_dir = 'data'  # default
+    
+    download_documents_from_metadata(json_file, output_dir, "English", max_docs, english_only, base_dir)

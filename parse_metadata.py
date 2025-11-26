@@ -162,8 +162,20 @@ if __name__ == "__main__":
     if len(sys.argv) > 2:
         output_file = Path(sys.argv[2])
     else:
-        # Use same filename but in parsed/metadata/
-        output_file = OUTPUT_DIR / xml_file.name.replace('.xml', '.json')
+        # Auto-detect base directory from input path
+        # If input is test_data/raw/xml/..., output should be test_data/parsed/metadata/...
+        # If input is data/raw/xml/..., output should be data/parsed/metadata/...
+        xml_parts = xml_file.parts
+        if 'test_data' in xml_parts:
+            base_dir = Path('test_data')
+        elif 'data' in xml_parts:
+            base_dir = Path('data')
+        else:
+            base_dir = Path('data')  # default fallback
+        
+        output_dir = base_dir / "parsed" / "metadata"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / xml_file.name.replace('.xml', '.json')
 
     # Parse
     metadata_list = parse_xml_file(xml_file)
