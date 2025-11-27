@@ -102,9 +102,9 @@ API Documentation: https://digitallibrary.un.org/help/search-engine-api
 
     print("\n✅ Data directory structure ready!")
     print("\nNext steps:")
-    print("  1. Run: python fetch_metadata.py 78 --data-dir data")
-    print("  2. Run: python parse_metadata.py --data-dir data")
-    print("  3. Run: python download_pdfs.py --data-dir data")
+    print("  1. Run: python fetch_metadata.py 78 --base-dir data")
+    print("  2. Run: python parse_metadata.py data/raw/xml/session_78_resolutions.xml")
+    print("  3. Run: python download_pdfs.py data/parsed/metadata/session_78_resolutions.json")
 
 if __name__ == "__main__":
     create_data_structure()

@@ -13,24 +13,33 @@ The scraper uses a 3-stage pipeline:
 ### 1. Fetch metadata (XML)
 ```bash
 # Fetch all document types for session 78
-python3 fetch_metadata.py 78
+uv run fetch_metadata.py 78
 
 # Or fetch specific types
-python3 fetch_metadata.py 78 --types agenda voting plenary-drafts
+uv run fetch_metadata.py 78 --types agenda voting plenary-drafts
 ```
 This saves MARCXML to `data/raw/xml/`
 
 ### 2. Parse metadata (JSON)
 ```bash
-# Parse all XML files in directory
-python3 parse_metadata.py data/raw/xml/session_78_*.xml
+# Parse a single XML file (auto-detects output path)
+uv run parse_metadata.py data/raw/xml/session_78_resolutions.xml
+
+# Or specify custom output path
+uv run parse_metadata.py data/raw/xml/session_78_resolutions.xml -o custom_output.json
 ```
 This creates JSON files in `data/parsed/metadata/`
 
 ### 3. Download PDFs
 ```bash
 # Download all PDFs (English only by default)
-python3 download_pdfs.py data/parsed/metadata/session_78_*.json
+uv run download_pdfs.py data/parsed/metadata/session_78_resolutions.json
+
+# Download first 5 PDFs
+uv run download_pdfs.py data/parsed/metadata/session_78_resolutions.json --max-docs 5
+
+# Download all languages
+uv run download_pdfs.py data/parsed/metadata/session_78_resolutions.json --all-languages
 ```
 This saves PDFs to `data/documents/pdfs/{resolutions,drafts,agenda,...}/`
 
@@ -43,19 +52,19 @@ bash test_pipeline.sh  # Downloads 3 sample PDFs
 
 ```bash
 # Just resolutions
-python3 fetch_metadata.py 78 --types resolutions
+uv run fetch_metadata.py 78 --types resolutions
 
 # Just voting records (for linking drafts to resolutions)
-python3 fetch_metadata.py 78 --types voting
+uv run fetch_metadata.py 78 --types voting
 
 # Agenda and plenary drafts
-python3 fetch_metadata.py 78 --types agenda plenary-drafts
+uv run fetch_metadata.py 78 --types agenda plenary-drafts
 
 # Committee drafts only
-python3 fetch_metadata.py 78 --types committee-drafts
+uv run fetch_metadata.py 78 --types committee-drafts
 
 # Meeting records
-python3 fetch_metadata.py 78 --types meetings
+uv run fetch_metadata.py 78 --types meetings
 ```
 
 Available types: `resolutions`, `committee-drafts`, `plenary-drafts`, `agenda`, `meetings`, `voting`, `all` (default)
@@ -70,7 +79,7 @@ SESSIONS="75 76 77 78 79" bash collect_multiple_sessions.sh
 
 Or test all new document types for one session:
 ```bash
-python3 test_new_features.py
+uv run test_new_features.py
 ```
 
 ## Data Organization

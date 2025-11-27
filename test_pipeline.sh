@@ -17,7 +17,7 @@ mkdir -p test_data/raw/xml test_data/parsed/metadata test_data/documents/pdfs
 
 echo
 echo "=== STEP 1: Fetch metadata (Session 78 resolutions) ==="
-python fetch_metadata.py 78 test_data
+python fetch_metadata.py 78 --base-dir test_data --types resolutions
 
 echo
 echo "=== STEP 2: Parse XML to JSON ==="
@@ -25,7 +25,7 @@ python parse_metadata.py test_data/raw/xml/session_78_resolutions.xml
 
 echo
 echo "=== STEP 3: Download first 3 English PDFs ==="
-python download_pdfs.py test_data/parsed/metadata/session_78_resolutions.json 1000
+python download_pdfs.py test_data/parsed/metadata/session_78_resolutions.json --max-docs 3
 echo
 echo "================================"
 echo "Pipeline Test Complete!"

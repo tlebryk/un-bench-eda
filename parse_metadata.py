@@ -8,7 +8,7 @@ Saves to: data/parsed/metadata/
 
 import xml.etree.ElementTree as ET
 import json
-import sys
+import argparse
 from pathlib import Path
 from typing import List, Dict
 
@@ -153,18 +153,28 @@ def save_as_json(metadata_list: List[Dict], output_file: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python parse_metadata.py <xml_file> [output_json]")
-        print("\nExample:")
-        print("  python parse_metadata.py data/raw/xml/session_78_resolutions.xml")
-        print("  # Outputs to: data/parsed/metadata/session_78_resolutions.json")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Parse MARCXML files and extract document metadata',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python parse_metadata.py data/raw/xml/session_78_resolutions.xml
+  # Outputs to: data/parsed/metadata/session_78_resolutions.json
+  
+  python parse_metadata.py data/raw/xml/session_78_resolutions.xml -o custom_output.json
+        """
+    )
+    parser.add_argument('xml_file', type=Path, help='Path to XML file to parse')
+    parser.add_argument('-o', '--output', type=Path, default=None,
+                        help='Output JSON file path (default: auto-detect from input path)')
 
-    xml_file = Path(sys.argv[1])
+    args = parser.parse_args()
+
+    xml_file = args.xml_file
 
     # Auto-generate output path in parsed/metadata/
-    if len(sys.argv) > 2:
-        output_file = Path(sys.argv[2])
+    if args.output:
+        output_file = args.output
     else:
         # Auto-detect base directory from input path
         # If input is test_data/raw/xml/..., output should be test_data/parsed/metadata/...

@@ -10,7 +10,7 @@ import json
 import requests
 import time
 from pathlib import Path
-import sys
+import argparse
 
 # Data directories
 RESOLUTIONS_DIR = Path("data/documents/pdfs/resolutions")
@@ -188,40 +188,43 @@ def download_documents_from_metadata(json_file: str,
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python download_pdfs.py <metadata.json> [output_dir] [max_docs] [--all-languages]")
-        print("\nBy default, downloads English PDFs only (checks for 'English' or '-EN.pdf')")
-        print("Use --all-languages to download other languages")
-        print("\nExamples:")
-        print("  # Download first 5 English resolutions (auto-detects output dir)")
-        print("  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json 5")
-        print("\n  # Download all English resolutions (auto-detects: data/documents/pdfs/resolutions/)")
-        print("  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json")
-        print("\n  # Download committee drafts (auto-detects: data/documents/pdfs/drafts/)")
-        print("  python download_pdfs.py data/parsed/metadata/session_78_committee_1_drafts.json")
-        print("\n  # Custom output directory")
-        print("  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json custom_dir/")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Download PDFs from parsed metadata JSON files',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Download first 5 English resolutions (auto-detects output dir)
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json --max-docs 5
+  
+  # Download all English resolutions (auto-detects: data/documents/pdfs/resolutions/)
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json
+  
+  # Download committee drafts (auto-detects: data/documents/pdfs/drafts/)
+  python download_pdfs.py data/parsed/metadata/session_78_committee_1_drafts.json
+  
+  # Custom output directory
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json -o custom_dir/
+  
+  # Download all languages
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json --all-languages
+        """
+    )
+    parser.add_argument('json_file', type=Path, help='Path to metadata JSON file')
+    parser.add_argument('-o', '--output', type=Path, default=None,
+                        help='Output directory for PDFs (default: auto-detect from filename)')
+    parser.add_argument('--max-docs', type=int, default=None,
+                        help='Maximum number of documents to download (default: all)')
+    parser.add_argument('--all-languages', action='store_true',
+                        help='Download all languages (default: English only)')
+    parser.add_argument('--base-dir', type=str, default='data',
+                        help='Base data directory (default: data)')
 
-    json_file = sys.argv[1]
+    args = parser.parse_args()
 
-    # Parse arguments
-    output_dir = None
-    max_docs = None
-
-    # Check for --all-languages flag
-    english_only = '--all-languages' not in sys.argv
-
-    # Parse remaining positional arguments (skip argv[0] and argv[1])
-    for arg in sys.argv[2:]:
-        if arg == '--all-languages':
-            continue
-        try:
-            # Try to parse as integer (max_docs)
-            max_docs = int(arg)
-        except ValueError:
-            # Not an integer, must be output_dir
-            output_dir = arg
+    json_file = str(args.json_file)
+    output_dir = str(args.output) if args.output else None
+    max_docs = args.max_docs
+    english_only = not args.all_languages
 
     print(f"Mode: {'English only' if english_only else 'All languages'}")
     if max_docs:
@@ -238,6 +241,6 @@ if __name__ == "__main__":
     elif 'data' in json_parts:
         base_dir = 'data'
     else:
-        base_dir = 'data'  # default
+        base_dir = args.base_dir
     
     download_documents_from_metadata(json_file, output_dir, "en", max_docs, english_only, base_dir)
