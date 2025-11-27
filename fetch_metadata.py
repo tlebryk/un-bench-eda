@@ -167,7 +167,8 @@ def fetch_meeting_records(session: int, output_file: str = None, base_dir: str =
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'p': f'A/{session}/PV', 'f': 'symbol', 'of': 'xm', 'rg': 1000}
+    # Use MARC field syntax to get actual meeting documents (not speeches)
+    params = {'p': f'191__a:"A/{session}/PV.*"', 'of': 'xm', 'rg': 1000}
 
     print(f"Fetching meeting records for session {session}...")
     response = requests.get(url, params=params, timeout=30)

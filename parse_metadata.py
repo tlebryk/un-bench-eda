@@ -40,8 +40,12 @@ def extract_record_metadata(record: ET.Element) -> Dict:
     if record_id is not None:
         metadata['record_id'] = record_id.text.strip()
 
-    # Symbol (tag 191, subfield a)
+    # Symbol (tag 191 for documents, tag 791 for meeting/speech records)
     symbol_field = record.find('.//marc:datafield[@tag="191"]', MARC_NS)
+    if symbol_field is None:
+        # Try tag 791 (used for meeting records)
+        symbol_field = record.find('.//marc:datafield[@tag="791"]', MARC_NS)
+
     if symbol_field is not None:
         symbol = symbol_field.find('.//marc:subfield[@code="a"]', MARC_NS)
         if symbol is not None:

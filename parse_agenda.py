@@ -12,7 +12,8 @@ import re
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
+import pdfplumber
 
 
 def extract_metadata(text: str) -> Dict:
@@ -236,12 +237,21 @@ def parse_agenda_items(text: str) -> List[Dict]:
 
 
 def parse_agenda_file(file_path: str) -> Dict:
-    """Parse an agenda text file and return structured data"""
+    """Parse an agenda PDF file and return structured data"""
 
     print(f"Parsing agenda: {file_path}")
 
-    # Read file
-    text = Path(file_path).read_text(encoding='utf-8')
+    file_path_obj = Path(file_path)
+
+    # Extract text from PDF
+    if file_path_obj.suffix.lower() == '.pdf':
+        with pdfplumber.open(file_path) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+    else:
+        # Fallback to reading as text file
+        text = file_path_obj.read_text(encoding='utf-8')
 
     # Extract metadata
     metadata = extract_metadata(text)
@@ -271,7 +281,7 @@ def parse_agenda_file(file_path: str) -> Dict:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 parse_agenda.py <agenda.txt> [output.json]")
+        print("Usage: python3 parse_agenda.py <agenda.pdf> [output.json]")
         sys.exit(1)
 
     input_file = sys.argv[1]
