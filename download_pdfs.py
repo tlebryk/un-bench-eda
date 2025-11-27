@@ -45,9 +45,9 @@ def symbol_to_docs_url(symbol: str, language: str = "en") -> str:
     return f"https://documents.un.org/api/symbol/access?s={symbol_lower}&l={language}&t=pdf"
 
 
-def download_pdf(url: str, output_path: Path, max_retries: int = 3) -> bool:
+def download_pdf(url: str, output_path: Path, max_retries: int = 5) -> bool:
     """
-    Download a PDF from URL to file.
+    Download a PDF from URL to file with rate limit handling.
 
     Args:
         url: PDF URL
@@ -60,6 +60,27 @@ def download_pdf(url: str, output_path: Path, max_retries: int = 3) -> bool:
     for attempt in range(1, max_retries + 1):
         try:
             response = requests.get(url, timeout=30, stream=True)
+            
+            # Handle rate limiting (HTTP 429)
+            if response.status_code == 429:
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait_time = int(retry_after)
+                        print(f"  ⚠ Rate limited (429). Retry-After: {wait_time}s. Waiting...")
+                        time.sleep(wait_time)
+                    except ValueError:
+                        # If Retry-After is not a number, use exponential backoff
+                        wait_time = min(2 ** attempt, 60)  # Cap at 60 seconds
+                        print(f"  ⚠ Rate limited (429). Waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                else:
+                    # No Retry-After header, use exponential backoff
+                    wait_time = min(2 ** attempt, 60)  # Cap at 60 seconds
+                    print(f"  ⚠ Rate limited (429). Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                continue  # Retry the request
+            
             response.raise_for_status()
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,10 +93,17 @@ def download_pdf(url: str, output_path: Path, max_retries: int = 3) -> bool:
             print(f"  ✓ Downloaded ({file_size:,} bytes): {output_path.name}")
             return True
 
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code == 429:
+                # Already handled above, but catch here for safety
+                continue
+            print(f"  ✗ Attempt {attempt} failed (HTTP {e.response.status_code if e.response else 'unknown'}): {e}")
+            if attempt < max_retries:
+                time.sleep(min(2 ** attempt, 60))
         except Exception as e:
             print(f"  ✗ Attempt {attempt} failed: {e}")
             if attempt < max_retries:
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, 60))
 
     return False
 
@@ -85,7 +113,8 @@ def download_documents_from_metadata(json_file: str,
                                        language: str = "en",
                                        max_docs: int = None,
                                        english_only: bool = True,
-                                       base_dir: str = "data"):
+                                       base_dir: str = "data",
+                                       delay: float = 1.0):
     """
     Download PDFs for documents in metadata JSON.
 
@@ -97,6 +126,7 @@ def download_documents_from_metadata(json_file: str,
         language: Language code for docs.un.org (default: "en", ignored if english_only=False)
         max_docs: Maximum number of documents to download (None = all)
         english_only: If True, download English PDFs (language='en')
+        delay: Delay between requests in seconds (default: 1.0)
     """
     print(f"Loading metadata from {json_file}...")
     with open(json_file, 'r', encoding='utf-8') as f:
@@ -173,7 +203,7 @@ def download_documents_from_metadata(json_file: str,
         # Download
         if download_pdf(url, file_path):
             downloaded += 1
-            time.sleep(0.5)  # Rate limiting
+            time.sleep(delay)  # Rate limiting
         else:
             failed += 1
 
@@ -218,6 +248,8 @@ Examples:
                         help='Download all languages (default: English only)')
     parser.add_argument('--base-dir', type=str, default='data',
                         help='Base data directory (default: data)')
+    parser.add_argument('--delay', type=float, default=1.0,
+                        help='Delay between requests in seconds (default: 1.0)')
 
     args = parser.parse_args()
 
@@ -243,4 +275,4 @@ Examples:
     else:
         base_dir = args.base_dir
     
-    download_documents_from_metadata(json_file, output_dir, "en", max_docs, english_only, base_dir)
+    download_documents_from_metadata(json_file, output_dir, "en", max_docs, english_only, base_dir, args.delay)
