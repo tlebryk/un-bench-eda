@@ -98,6 +98,15 @@ def download_documents_from_metadata(json_file: str,
         elif 'draft' in json_filename:
             output_path = base_data_dir / "documents" / "pdfs" / "drafts"
             print(f"Auto-detected: Saving drafts to {output_path}")
+        elif 'agenda' in json_filename:
+            output_path = base_data_dir / "documents" / "pdfs" / "agenda"
+            print(f"Auto-detected: Saving agenda to {output_path}")
+        elif 'meeting' in json_filename:
+            output_path = base_data_dir / "documents" / "pdfs" / "meetings"
+            print(f"Auto-detected: Saving meetings to {output_path}")
+        elif 'voting' in json_filename:
+            output_path = base_data_dir / "documents" / "pdfs" / "voting"
+            print(f"Auto-detected: Saving voting records to {output_path}")
         else:
             output_path = base_data_dir / "documents" / "pdfs" / "other"
             output_path.mkdir(parents=True, exist_ok=True)

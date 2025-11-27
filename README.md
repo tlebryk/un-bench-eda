@@ -8,37 +8,111 @@ For the full research context, see [project.md](project.md).
 
 ## Quick Start
 
-A 3-stage pipeline is used to collect the documents:
-1. **`fetch_metadata.py`**: Fetches XML from the UN Digital Library API.
-2. **`parse_metadata.py`**: Parses the XML to create a JSON file with PDF URLs.
-3. **`download_pdfs.py`**: Downloads the PDFs.
+The scraper uses a 3-stage pipeline:
 
-### Run a quick test
-
-To verify the pipeline is working, run the test script:
+### 1. Fetch metadata (XML)
 ```bash
-bash test_pipeline.sh
+# Fetch all document types for session 78
+python3 fetch_metadata.py 78
+
+# Or fetch specific types
+python3 fetch_metadata.py 78 --types agenda voting plenary-drafts
 ```
-This will download 3 PDFs to the `data/documents/pdfs/resolutions/` directory.
+This saves MARCXML to `data/raw/xml/`
 
-### Collect documents
+### 2. Parse metadata (JSON)
+```bash
+# Parse all XML files in directory
+python3 parse_metadata.py data/raw/xml/session_78_*.xml
+```
+This creates JSON files in `data/parsed/metadata/`
 
-A convenience script is provided to collect documents from multiple sessions:
+### 3. Download PDFs
+```bash
+# Download all PDFs (English only by default)
+python3 download_pdfs.py data/parsed/metadata/session_78_*.json
+```
+This saves PDFs to `data/documents/pdfs/{resolutions,drafts,agenda,...}/`
+
+### Quick test
+```bash
+bash test_pipeline.sh  # Downloads 3 sample PDFs
+```
+
+### Fetch specific document types
+
+```bash
+# Just resolutions
+python3 fetch_metadata.py 78 --types resolutions
+
+# Just voting records (for linking drafts to resolutions)
+python3 fetch_metadata.py 78 --types voting
+
+# Agenda and plenary drafts
+python3 fetch_metadata.py 78 --types agenda plenary-drafts
+
+# Committee drafts only
+python3 fetch_metadata.py 78 --types committee-drafts
+
+# Meeting records
+python3 fetch_metadata.py 78 --types meetings
+```
+
+Available types: `resolutions`, `committee-drafts`, `plenary-drafts`, `agenda`, `meetings`, `voting`, `all` (default)
+
+### Complete collection for a session
+
+Collect all document types for multiple sessions:
 ```bash
 # Collect documents for sessions 75, 76, 77, 78, 79
 SESSIONS="75 76 77 78 79" bash collect_multiple_sessions.sh
 ```
 
+Or test all new document types for one session:
+```bash
+python3 test_new_features.py
+```
+
+## Data Organization
+
+The pipeline organizes data in three stages:
+
+```
+data/
+├── raw/xml/                          # Stage 1: Fetched MARCXML
+│   ├── session_78_resolutions.xml
+│   ├── session_78_committee_1_drafts.xml
+│   ├── session_78_plenary_drafts.xml
+│   ├── session_78_agenda.xml
+│   ├── session_78_meetings.xml
+│   └── session_78_voting.xml
+│
+├── parsed/metadata/                  # Stage 2: Parsed JSON
+│   ├── session_78_resolutions.json
+│   ├── session_78_committee_1_drafts.json
+│   ├── session_78_plenary_drafts.json
+│   └── ...
+│
+└── documents/pdfs/                   # Stage 3: Downloaded PDFs
+    ├── resolutions/
+    ├── drafts/
+    ├── agenda/
+    ├── meetings/
+    └── voting/
+```
+
 ## Project Structure
 
-*   `fetch_metadata.py`, `parse_metadata.py`, `download_pdfs.py`: The main pipeline scripts.
-*   `collect_multiple_sessions.sh`: A shell script to automate collection of multiple sessions.
-*   `test_pipeline.sh`: A shell script to run a quick test of the pipeline.
-*   `data/`: The directory where all collected data is stored.
-*   `project.md`: The high-level research project description.
-*   `un_document_structure.md`: A reference guide on how UN documents are structured and named.
-*   `DEVELOPMENT.md`: A detailed guide for developers who want to modify or extend the scraper.
+**Scripts:**
+- `fetch_metadata.py` - Fetch MARCXML from UN Digital Library API
+- `parse_metadata.py` - Parse XML to JSON with PDF URLs
+- `download_pdfs.py` - Download PDFs from extracted URLs
+- `test_new_features.py` - Test all new document types
+- `test_pipeline.sh` - Quick validation test
+- `collect_multiple_sessions.sh` - Batch collection script
 
-## For Developers
-
-For more detailed technical information, including the architecture, known issues, and future enhancements, see [DEVELOPMENT.md](DEVELOPMENT.md).
+**Documentation:**
+- `project.md` - Research project description (IGO-Gym benchmark)
+- `un_document_structure.md` - UN document naming conventions
+- `new_scrape_plan.md` - Document collection requirements
+- `ENGINEERING_NOTEBOOK.md` - Implementation notes and known issues
