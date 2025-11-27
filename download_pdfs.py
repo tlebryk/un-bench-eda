@@ -159,6 +159,9 @@ def download_documents_from_metadata(json_file: str,
         elif 'agenda' in json_filename:
             output_path = base_data_dir / "documents" / "pdfs" / "agenda"
             print(f"Auto-detected: Saving agenda to {output_path}")
+        elif 'committee-report' in json_filename or 'committee_reports' in json_filename:
+            output_path = base_data_dir / "documents" / "html" / "committee-reports"
+            print(f"Auto-detected: Saving committee-reports HTML to {output_path}")
         elif 'meeting' in json_filename:
             output_path = base_data_dir / "documents" / "pdfs" / "meetings"
             print(f"Auto-detected: Saving meetings to {output_path}")
