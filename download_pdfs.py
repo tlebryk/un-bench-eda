@@ -19,6 +19,32 @@ RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
 DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def symbol_to_docs_url(symbol: str, language: str = "en") -> str:
+    """
+    Convert UN document symbol to documents.un.org API URL for PDF access.
+
+    Uses the Official Document System (ODS) API which reliably serves PDFs.
+    docs.un.org redirects to this endpoint.
+
+    Examples:
+        A/RES/78/276 → https://documents.un.org/api/symbol/access?s=A/res/78/276&l=en&t=pdf
+        A/C.1/78/L.2 → https://documents.un.org/api/symbol/access?s=A/C.1/78/L.2&l=en&t=pdf
+        A/78/251 → https://documents.un.org/api/symbol/access?s=A/78/251&l=en&t=pdf
+
+    Args:
+        symbol: UN document symbol (e.g., A/RES/78/276)
+        language: Language code (default: en)
+
+    Returns:
+        URL to PDF at documents.un.org API
+    """
+    # Convert RES to lowercase res, keep everything else as-is
+    symbol_lower = symbol.replace('/RES/', '/res/')
+
+    # Construct ODS API URL
+    return f"https://documents.un.org/api/symbol/access?s={symbol_lower}&l={language}&t=pdf"
+
+
 def download_pdf(url: str, output_path: Path, max_retries: int = 3) -> bool:
     """
     Download a PDF from URL to file.
@@ -56,19 +82,21 @@ def download_pdf(url: str, output_path: Path, max_retries: int = 3) -> bool:
 
 def download_documents_from_metadata(json_file: str,
                                        output_dir: str = None,
-                                       language: str = "English",
+                                       language: str = "en",
                                        max_docs: int = None,
                                        english_only: bool = True,
                                        base_dir: str = "data"):
     """
     Download PDFs for documents in metadata JSON.
 
+    Uses docs.un.org URLs constructed from symbols (more reliable than Digital Library URLs).
+
     Args:
         json_file: Path to metadata JSON file
         output_dir: Directory to save PDFs (default: auto-detect from filename)
-        language: Which language to download (default: English)
+        language: Language code for docs.un.org (default: "en", ignored if english_only=False)
         max_docs: Maximum number of documents to download (None = all)
-        english_only: If True, only download English PDFs (checks for 'English' or '-EN.pdf')
+        english_only: If True, download English PDFs (language='en')
     """
     print(f"Loading metadata from {json_file}...")
     with open(json_file, 'r', encoding='utf-8') as f:
@@ -120,46 +148,16 @@ def download_documents_from_metadata(json_file: str,
         symbol = doc.get('symbol', 'UNKNOWN')
         print(f"\n[{i}/{len(metadata_list)}] {symbol}")
 
-        # Find file for requested language
-        files = doc.get('files', [])
-        target_file = None
-
-        if english_only:
-            # Look for English PDFs: either language="English" or URL ends with -EN.pdf
-            for f in files:
-                lang = f.get('language', '')
-                url = f.get('url', '')
-                if lang == 'English' or '-EN.pdf' in url or url.endswith('EN.pdf'):
-                    target_file = f
-                    break
-        else:
-            # Look for specific language
-            for f in files:
-                if f.get('language') == language:
-                    target_file = f
-                    break
-
-        if not target_file:
-            if english_only:
-                print(f"  ⚠ No English file found")
-            else:
-                print(f"  ⚠ No {language} file found (available: {[f.get('language') for f in files]})")
-
-            # Don't fallback if english_only is True
-            if not english_only and files:
-                target_file = files[0]
-                print(f"  → Using {target_file.get('language')} instead")
-            else:
-                print(f"  ✗ Skipping (no suitable file)")
-                failed += 1
-                continue
-
-        # Download
-        url = target_file.get('url')
-        if not url:
-            print(f"  ✗ No URL found")
+        # Skip if no symbol
+        if symbol == 'UNKNOWN' or not symbol:
+            print(f"  ✗ No symbol found")
             failed += 1
             continue
+
+        # Construct docs.un.org URL from symbol (more reliable than Digital Library URLs)
+        lang_code = 'en' if english_only else language
+        url = symbol_to_docs_url(symbol, language=lang_code)
+        print(f"  → URL: {url}")
 
         # Create safe filename from symbol
         safe_symbol = symbol.replace('/', '_').replace(' ', '_')
@@ -242,4 +240,4 @@ if __name__ == "__main__":
     else:
         base_dir = 'data'  # default
     
-    download_documents_from_metadata(json_file, output_dir, "English", max_docs, english_only, base_dir)
+    download_documents_from_metadata(json_file, output_dir, "en", max_docs, english_only, base_dir)

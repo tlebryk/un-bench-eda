@@ -32,12 +32,11 @@ def fetch_session_resolutions(session: int, output_file: str = None, base_dir: s
 
     url = "https://digitallibrary.un.org/search"
     params = {
-        'p': f'A/RES/{session}',
-        'f': 'symbol',  # Field-specific search
+        'p': f'191__a:"A/RES/{session}/*"',  # MARC field syntax with wildcard
         'of': 'xm',     # MARCXML format
-        'rg': 1000      # Max results per page
-        # TODO: might have to bump and/or paginate using jrec...
-        # TODO: maybe we can filter for english langauge at this level? 
+        'rg': 500       # Sufficient for ~200-300 resolutions per session
+        # Note: If a session has >500 resolutions, need to paginate using jrec
+        # TODO: maybe we can filter for english language at this level?
     }
 
     print(f"Fetching resolutions for session {session}...")
@@ -81,8 +80,7 @@ def fetch_committee_drafts(committee: int, session: int, output_file: str = None
 
     url = "https://digitallibrary.un.org/search"
     params = {
-        'p': f'A/C.{committee}/{session}/L',
-        'f': 'symbol',
+        'p': f'191__a:"A/C.{committee}/{session}/L.*"',  # MARC field syntax with wildcard
         'of': 'xm',
         'rg': 1000
     }
@@ -113,7 +111,7 @@ def fetch_plenary_drafts(session: int, output_file: str = None, base_dir: str = 
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'p': f'A/{session}/L', 'f': 'symbol', 'of': 'xm', 'rg': 1000}
+    params = {'p': f'191__a:"A/{session}/L.*"', 'of': 'xm', 'rg': 1000}
 
     print(f"Fetching plenary drafts for session {session}...")
     response = requests.get(url, params=params, timeout=30)
@@ -140,7 +138,7 @@ def fetch_agenda(session: int, output_file: str = None, base_dir: str = "data"):
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'p': f'A/{session}/251', 'f': 'symbol', 'of': 'xm', 'rg': 100}
+    params = {'p': f'191__a:"A/{session}/251*"', 'of': 'xm', 'rg': 100}
 
     print(f"Fetching agenda for session {session}...")
     response = requests.get(url, params=params, timeout=30)
@@ -184,6 +182,51 @@ def fetch_meeting_records(session: int, output_file: str = None, base_dir: str =
         return None
 
 
+def fetch_committee_reports(session: int, output_file: str = None, base_dir: str = "data"):
+    """
+    Fetch all committee reports for a session.
+    
+    Committee reports are documents like A/78/411 (report of the 1st Committee).
+    They typically fall in the A/{session}/4xx range (approximately 400-499).
+    These reports contain the committee's recommendations and are distinct from
+    committee drafts (A/C.N/{session}/L.*).
+    
+    Args:
+        session: GA session number (e.g., 78)
+        output_file: Path to save XML (default: {base_dir}/raw/xml/session_{session}_committee_reports.xml)
+        base_dir: Base data directory (default: "data")
+    """
+    if output_file is None:
+        data_dir = Path(base_dir) / "raw" / "xml"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        output_file = data_dir / f"session_{session}_committee_reports.xml"
+    else:
+        output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    url = "https://digitallibrary.un.org/search"
+    params = {
+        'p': f'191__a:"A/{session}/*"',  # MARC field syntax with wildcard
+        'of': 'xm',
+        'rg': 500,  # Should be sufficient for committee reports
+        "fct__1": "Reports",
+        "fct__2": "General Assembly",
+    }
+
+    print(f"Fetching committee reports for session {session}...")
+    response = requests.get(url, params=params, timeout=30)
+    print(f"Status: {response.status_code}, Size: {len(response.text)} bytes")
+
+    if response.status_code == 200:
+        Path(output_file).write_text(response.text, encoding='utf-8')
+        record_count = response.text.count('<record>')
+        print(f"Saved {record_count} records to: {output_file}")
+        return output_file
+    else:
+        print(f"Error: {response.status_code}")
+        return None
+
+
 def fetch_voting_records(session: int, output_file: str = None, base_dir: str = "data"):
     """Fetch voting records for resolutions (c=Voting+Data)"""
     if output_file is None:
@@ -195,7 +238,7 @@ def fetch_voting_records(session: int, output_file: str = None, base_dir: str = 
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'c': 'Voting Data', 'p': f'A/RES/{session}', 'f': 'symbol', 'of': 'xm', 'rg': 1000}
+    params = {'c': 'Voting Data', 'p': f'191__a:"A/RES/{session}/*"', 'of': 'xm', 'rg': 500}
 
     print(f"Fetching voting records for session {session}...")
     response = requests.get(url, params=params, timeout=30)
@@ -218,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument('session', type=int, help='GA session number (e.g., 78)')
     parser.add_argument('--base-dir', default='data', help='Base directory for data (default: data)')
     parser.add_argument('--types', nargs='+',
-                        choices=['resolutions', 'committee-drafts', 'plenary-drafts', 'agenda', 'meetings', 'voting', 'all'],
+                        choices=['resolutions', 'committee-drafts', 'committee-reports', 'plenary-drafts', 'agenda', 'meetings', 'voting', 'all'],
                         default=['all'],
                         help='Document types to fetch (default: all)')
 
@@ -230,7 +273,7 @@ if __name__ == "__main__":
 
     # Expand 'all' to all types
     if 'all' in types:
-        types = ['resolutions', 'committee-drafts', 'plenary-drafts', 'agenda', 'meetings', 'voting']
+        types = ['resolutions', 'committee-drafts', 'committee-reports', 'plenary-drafts', 'agenda', 'meetings', 'voting']
 
     print("="*60)
     print(f"UN METADATA FETCHER - Session {session}")
@@ -239,28 +282,32 @@ if __name__ == "__main__":
     print("="*60)
 
     if 'resolutions' in types:
-        print("\n[1/6] Fetching resolutions...")
+        print("\n[1/7] Fetching resolutions...")
         fetch_session_resolutions(session, base_dir=base_dir)
 
     if 'committee-drafts' in types:
-        print("\n[2/6] Fetching committee drafts...")
+        print("\n[2/7] Fetching committee drafts...")
         for committee in range(1, 7):
             fetch_committee_drafts(committee, session, base_dir=base_dir)
 
+    if 'committee-reports' in types:
+        print("\n[3/7] Fetching committee reports...")
+        fetch_committee_reports(session, base_dir=base_dir)
+
     if 'plenary-drafts' in types:
-        print("\n[3/6] Fetching plenary drafts...")
+        print("\n[4/7] Fetching plenary drafts...")
         fetch_plenary_drafts(session, base_dir=base_dir)
 
     if 'agenda' in types:
-        print("\n[4/6] Fetching agenda...")
+        print("\n[5/7] Fetching agenda...")
         fetch_agenda(session, base_dir=base_dir)
 
     if 'meetings' in types:
-        print("\n[5/6] Fetching meeting records...")
+        print("\n[6/7] Fetching meeting records...")
         fetch_meeting_records(session, base_dir=base_dir)
 
     if 'voting' in types:
-        print("\n[6/6] Fetching voting records...")
+        print("\n[7/7] Fetching voting records...")
         fetch_voting_records(session, base_dir=base_dir)
 
     print("\n" + "="*60)
