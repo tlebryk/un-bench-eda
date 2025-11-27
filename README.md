@@ -71,6 +71,26 @@ This saves parsed JSON to `data/parsed/html/{resolutions,drafts,committee-report
 bash test_pipeline.sh  # Downloads 3 sample PDFs
 ```
 
+## Genealogy tracing demo
+
+Use `trace_genealogy.py` to walk from an agenda item, draft, or resolution through the related drafts, committee reports, meetings, and agenda references. The script now supports three output modes:
+
+```bash
+# Existing text tree view
+uv run trace_genealogy.py A/RES/78/220
+
+# Structured node-link graph JSON (pass '-' to stream to stdout)
+uv run trace_genealogy.py A/RES/78/220 --graph-json scratch/iran_graph.json
+
+# Render a lightweight HTML demo you can open locally
+uv run trace_genealogy.py A/RES/78/220 --graph-html scratch/iran_graph.html
+
+# Produce a Mermaid diagram snippet for docs
+uv run trace_genealogy.py A/RES/78/220 --graph-mermaid scratch/iran_graph.mmd
+```
+
+The JSON graph output is the recommended starting point for the future gym backend. It contains node metadata (`symbol`, `doc_type`, `title`, `found`) and typed edges that connect agenda items → drafts → committee reports/meetings → resolutions. The HTML helper keeps dependencies minimal and is meant for demos or hand inspection; swap it out for a richer UI once the backend graph settles.
+
 ### Fetch specific document types
 
 ```bash
