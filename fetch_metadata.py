@@ -275,7 +275,7 @@ def fetch_plenary_drafts(session: int, output_file: str = None, base_dir: str = 
 
 
 def fetch_agenda(session: int, output_file: str = None, base_dir: str = "data"):
-    """Fetch session agenda documents (A/{session}/251)"""
+    """Fetch session agenda documents (A/{session}/251 and A/{session}/252)"""
     if output_file is None:
         data_dir = Path(base_dir) / "raw" / "xml"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -285,9 +285,12 @@ def fetch_agenda(session: int, output_file: str = None, base_dir: str = "data"):
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'p': f'191__a:"A/{session}/251*"'}
+    
+    # Fetch both 251 (agenda) and 252 (allocation of work) documents
+    # Use OR syntax to get both in a single query
+    params = {'p': f'191__a:"A/{session}/251*" OR 191__a:"A/{session}/252*"'}
 
-    print(f"Fetching agenda for session {session}...")
+    print(f"Fetching agenda (251) and allocation of work (252) for session {session}...")
     
     try:
         combined_xml = fetch_paginated_xml(url, params, timeout=30)
