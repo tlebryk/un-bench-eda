@@ -234,9 +234,12 @@ def parse_agenda_item(agenda_text: str) -> Optional[Dict[str, any]]:
     # Try pattern 1: Standard number format "35 Title. SUBJECTS"
     match = re.match(r'(\d+)\s+(.+?)(?:\.\s*(.+))?$', remainder)
     if match:
+        item_number = int(match.group(1))
+        item_id = f"{agenda_symbol}_item_{item_number}"
         return {
+            'id': item_id,
             'agenda_symbol': agenda_symbol,
-            'item_number': int(match.group(1)),
+            'item_number': item_number,
             'sub_item': None,
             'title': match.group(2).strip(),
             'subjects': match.group(3).strip() if match.group(3) else None
@@ -245,9 +248,12 @@ def parse_agenda_item(agenda_text: str) -> Optional[Dict[str, any]]:
     # Try pattern 2: Bracketed number "[905] Title"
     match = re.match(r'\[(\d+)\]\s+(.+)$', remainder)
     if match:
+        item_number = int(match.group(1))
+        item_id = f"{agenda_symbol}_item_{item_number}"
         return {
+            'id': item_id,
             'agenda_symbol': agenda_symbol,
-            'item_number': int(match.group(1)),
+            'item_number': item_number,
             'sub_item': None,
             'title': match.group(2).strip(),
             'subjects': None
@@ -256,13 +262,17 @@ def parse_agenda_item(agenda_text: str) -> Optional[Dict[str, any]]:
     # Try pattern 3: With sub-item letter "18i Title" or "8[1] Title"
     match = re.match(r'(\d+)([a-z]|\[\d+\])\s+(.+)$', remainder)
     if match:
+        item_number = int(match.group(1))
         sub_item = match.group(2)
         # Remove brackets if present
         if sub_item.startswith('[') and sub_item.endswith(']'):
             sub_item = sub_item[1:-1]
+        
+        item_id = f"{agenda_symbol}_item_{item_number}{sub_item}"
         return {
+            'id': item_id,
             'agenda_symbol': agenda_symbol,
-            'item_number': int(match.group(1)),
+            'item_number': item_number,
             'sub_item': sub_item,
             'title': match.group(3).strip(),
             'subjects': None
@@ -270,6 +280,7 @@ def parse_agenda_item(agenda_text: str) -> Optional[Dict[str, any]]:
     
     # Fallback: just return what we can extract
     return {
+        'id': f"{agenda_symbol}_item_unknown",
         'agenda_symbol': agenda_symbol,
         'item_number': None,
         'sub_item': None,
@@ -401,10 +412,14 @@ def parse_metadata_html(html_file: Path) -> Dict:
         match = re.search(r'record_(\d+)', html_file.stem)
         if match:
             record_id = match.group(1)
+
+    doc_id = record_id or symbol
     
     # Build result structure aligned with schema
     result = {
+        'id': doc_id,
         'metadata': {
+            'id': doc_id,
             'symbol': symbol,
             'record_id': record_id,
             'title': title,

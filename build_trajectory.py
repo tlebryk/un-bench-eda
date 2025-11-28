@@ -57,7 +57,7 @@ class TrajectoryBuilder:
         timesteps.extend(self._build_plenary_timesteps(tree))
 
         # Sort by date and assign timestep numbers
-        timesteps.sort(key=lambda x: x.get("date", ""))
+        # timesteps.sort(key=lambda x: x.get("date", ""))
         for i, ts in enumerate(timesteps):
             ts["t"] = i
 

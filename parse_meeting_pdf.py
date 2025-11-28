@@ -622,6 +622,7 @@ def extract_resolution_metadata(text: str) -> Dict[str, Any]:
     # Pattern for title: text in quotes after "entitled"
     # Handle both straight quotes (") and curly quotes (" " U+201C U+201D)
     # Also handle quotes followed by period
+    # Be more careful: look for the pattern and limit title length to prevent over-matching
     title_pattern = re.compile(
         r'entitled\s+["""\u201C\u201D](.+?)["""\u201C\u201D]\.?',
         re.IGNORECASE | re.DOTALL
@@ -629,8 +630,22 @@ def extract_resolution_metadata(text: str) -> Dict[str, Any]:
     title_match = title_pattern.search(text)
     if title_match:
         title = title_match.group(1).strip()
+        # If title is suspiciously long (likely over-matched), try to find a sentence boundary
+        # Titles are typically short phrases, not multiple paragraphs
+        if len(title) > 200:
+            # Try to find a period followed by space or newline within first 200 chars
+            # This handles cases where closing quote is missing
+            sentence_end = re.search(r'\.(?:\s|\n|$)', title[:200])
+            if sentence_end:
+                title = title[:sentence_end.start()].strip()
         # Clean up any extra whitespace
         title = ' '.join(title.split())
+        # Final sanity check: if still too long, truncate at first sentence
+        if len(title) > 300:
+            # Find first sentence boundary
+            first_sentence = re.search(r'^([^.]{1,300})(?:\.|$)', title)
+            if first_sentence:
+                title = first_sentence.group(1).strip()
         metadata['resolution_title'] = title
     
     # Pattern for resolution number: "resolution 78/225" or "(resolution 78/225)"
@@ -710,6 +725,24 @@ def extract_resolution_metadata(text: str) -> Dict[str, Any]:
     return metadata
 
 
+def detect_draft_resolution_mentions(text: str) -> List[str]:
+    """Detect all draft resolution identifiers mentioned in text.
+    
+    Returns a list of identifiers (e.g., ['I', 'III', 'IV']) found in the text.
+    """
+    identifiers = []
+    # Pattern to find all draft resolution mentions
+    pattern = re.compile(
+        r'(?:Draft|draft)\s+resolution\s+(I{1,3}|IV|V|VI{0,3}|[1-9]\d*)',
+        re.IGNORECASE
+    )
+    for match in pattern.finditer(text):
+        identifier = match.group(1).upper()
+        if identifier not in identifiers:
+            identifiers.append(identifier)
+    return identifiers
+
+
 def finalize_utterance(utterance: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not utterance:
         return None
@@ -723,6 +756,12 @@ def finalize_utterance(utterance: Optional[Dict[str, Any]]) -> Optional[Dict[str
     resolution_metadata = extract_resolution_metadata(text)
     if resolution_metadata:
         utterance['resolution_metadata'] = resolution_metadata
+    
+    # Also detect all draft resolution mentions for context
+    # This helps associate utterances with resolutions even if they don't have full metadata
+    draft_mentions = detect_draft_resolution_mentions(text)
+    if draft_mentions:
+        utterance['draft_resolution_mentions'] = draft_mentions
     
     return utterance
 
@@ -809,6 +848,76 @@ def parse_sections(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     return sections, preface
 
 
+def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> None:
+    """Post-process sections to associate utterances with resolutions based on context.
+    
+    When the President announces multiple draft resolutions (e.g., "five draft resolutions"),
+    subsequent cross-talk utterances should be associated with those resolutions based on
+    mentions of draft resolution identifiers.
+    """
+    for section in sections:
+        utterances = section.get('utterances', [])
+        if not utterances:
+            continue
+        
+        # Track when we're in a "multiple resolutions" context
+        # Look for President's announcement like "five draft resolutions"
+        multiple_resolutions_context = False
+        announced_resolution_count = None
+        
+        for i, utterance in enumerate(utterances):
+            text = utterance.get('text', '')
+            speaker = utterance.get('speaker', {})
+            speaker_raw = speaker.get('raw', '').lower()
+            
+            # Check if President announces multiple resolutions
+            if 'president' in speaker_raw:
+                # Look for patterns like "five draft resolutions" or "several draft resolutions"
+                multi_res_pattern = re.search(
+                    r'(\d+|several|multiple|a number of)\s+draft\s+resolutions?',
+                    text,
+                    re.IGNORECASE
+                )
+                if multi_res_pattern:
+                    multiple_resolutions_context = True
+                    # Extract the number if it's a digit
+                    count_str = multi_res_pattern.group(1)
+                    if count_str.isdigit():
+                        announced_resolution_count = int(count_str)
+                    # This context continues until voting starts
+                    continue
+            
+            # Check if we're starting voting (President says "We will now take a decision")
+            if 'president' in speaker_raw and re.search(
+                r'we will now take a decision|we turn (first|now) to|draft resolution [IVX]+ is entitled',
+                text,
+                re.IGNORECASE
+            ):
+                multiple_resolutions_context = False
+                announced_resolution_count = None
+            
+            # If we're in a multiple resolutions context, try to associate utterances
+            # with resolutions based on mentions
+            if multiple_resolutions_context:
+                draft_mentions = utterance.get('draft_resolution_mentions', [])
+                if draft_mentions:
+                    # If utterance mentions specific draft resolutions, ensure they're in metadata
+                    if 'resolution_metadata' not in utterance:
+                        # Create basic metadata from mentions
+                        # Use the first mention as primary, but note all mentions
+                        utterance['resolution_metadata'] = {
+                            'draft_resolution_identifier': draft_mentions[0],
+                            'mentioned_resolutions': draft_mentions
+                        }
+                    elif 'draft_resolution_identifier' in utterance['resolution_metadata']:
+                        # If we already have metadata, add all mentions
+                        if 'mentioned_resolutions' not in utterance['resolution_metadata']:
+                            utterance['resolution_metadata']['mentioned_resolutions'] = []
+                        for mention in draft_mentions:
+                            if mention not in utterance['resolution_metadata']['mentioned_resolutions']:
+                                utterance['resolution_metadata']['mentioned_resolutions'].append(mention)
+
+
 def compute_stats(sections: List[Dict[str, Any]]) -> Dict[str, Any]:
     utterances = sum(len(section['utterances']) for section in sections)
     speakers = set()
@@ -834,8 +943,22 @@ def parse_meeting_file(file_path: str) -> Dict[str, Any]:
     text = load_text(path)
     metadata = extract_metadata(text)
     sections, preface = parse_sections(text)
+    
+    # Post-process to associate utterances with resolutions
+    associate_utterances_with_resolutions(sections)
+
+    # Add unique IDs
+    doc_symbol = metadata.get('symbol')
+    if doc_symbol:
+        metadata['id'] = doc_symbol
+        for i, section in enumerate(sections):
+            agenda_num = section.get('agenda_item_number', f"s{i+1}")
+            section['id'] = f"{doc_symbol}_section_{agenda_num}"
+            for j, utterance in enumerate(section.get('utterances', [])):
+                utterance['id'] = f"{section['id']}_utterance_{j+1}"
 
     return {
+        'id': doc_symbol,
         'source_file': str(path),
         'preface': preface,
         'metadata': metadata,

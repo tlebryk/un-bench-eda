@@ -421,6 +421,15 @@ def parse_committee_report_file(file_path: str) -> Dict[str, Any]:
     # Parse items
     items = parse_items(text)
     
+    # Add unique IDs
+    doc_symbol = metadata.get('symbol')
+    if doc_symbol:
+        metadata['id'] = doc_symbol
+        for i, item in enumerate(items):
+            # Fallback to index if section_letter is not present
+            section_id = item.get('section_letter', f"I{i+1}")
+            item['id'] = f"{doc_symbol}_item_{section_id}"
+
     # Extract introduction (text before "Consideration of proposals")
     introduction_pos = text.find('Consideration of proposals')
     if introduction_pos == -1:
@@ -428,6 +437,7 @@ def parse_committee_report_file(file_path: str) -> Dict[str, Any]:
     introduction = text[:introduction_pos].strip() if introduction_pos > 0 else None
     
     return {
+        'id': doc_symbol,
         'source_file': str(path),
         'metadata': metadata,
         'introduction': introduction,
