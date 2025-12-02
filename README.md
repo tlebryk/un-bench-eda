@@ -91,6 +91,38 @@ uv run trace_genealogy.py A/RES/78/220 --graph-mermaid scratch/iran_graph.mmd
 
 The JSON graph output is the recommended starting point for the future gym backend. It contains node metadata (`symbol`, `doc_type`, `title`, `found`) and typed edges that connect agenda items → drafts → committee reports/meetings → resolutions. The HTML helper keeps dependencies minimal and is meant for demos or hand inspection; swap it out for a richer UI once the backend graph settles.
 
+## Build and inspect RL trajectories
+
+Once you have genealogy coverage for a resolution, you can convert it into a MARL-ready trajectory JSON and review the resulting sequence of states/actions.
+
+```bash
+# Build a trajectory for a resolution using all locally parsed data
+uv run build_trajectory.py A/RES/78/220 --pretty -o trajectory_A_RES_78_220.json
+
+# `build_trajectory.py`:
+#   • crawls the genealogy via `trace_genealogy.py`
+#   • stitches agenda, drafts, committee reports, and plenary meetings into timesteps
+#   • emits metadata + per-timestep state/action/observation blocks for the MARL env
+```
+
+You can restrict output formatting with `--pretty` (pretty-print JSON) and point to a custom filename via `-o/--output`. The script prints a quick timeline summary when the build finishes.
+
+To explore the resulting file without writing custom tooling, use the lightweight CLI visualizer:
+
+```bash
+# Default view: walk every timestep with aggregate info
+uv run visualize_trajectory.py trajectory_A_RES_78_220.json
+
+# Helpful flags
+uv run visualize_trajectory.py trajectory_A_RES_78_220.json \
+    --timestep 3 \            # focus on a single stage
+    --verbose \               # show full vote rolls, longer excerpts
+    --comparison \            # compare committee vs plenary tallies
+    --countries               # summarize actions per country
+```
+
+`visualize_trajectory.py` only reads the saved JSON, so you can share trajectories with teammates and inspect them without needing the full scrape.
+
 ### Fetch specific document types
 
 ```bash
