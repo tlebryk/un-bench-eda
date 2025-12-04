@@ -89,7 +89,9 @@ uv run trace_genealogy.py A/RES/78/220 --graph-html scratch/iran_graph.html
 uv run trace_genealogy.py A/RES/78/220 --graph-mermaid scratch/iran_graph.mmd
 ```
 
-The JSON graph output is the recommended starting point for the future gym backend. It contains node metadata (`symbol`, `doc_type`, `title`, `found`) and typed edges that connect agenda items → drafts → committee reports/meetings → resolutions. The HTML helper keeps dependencies minimal and is meant for demos or hand inspection; swap it out for a richer UI once the backend graph settles.
+Quick sanity check: `uv run example_trace.py` enumerates all three traversal modes (agenda → forwards, resolution → backwards, draft ↔ both) so you can confirm coverage before running heavier jobs.
+
+The JSON graph output is the recommended starting point for the future gym backend. It contains node metadata (`symbol`, `doc_type`, `title`, `found`) and typed edges that connect agenda items → drafts → committee reports/meetings → resolutions. The lightweight HTML helper is only meant for demos; swap it out once the backend graph stabilizes.
 
 ## Build and inspect RL trajectories
 
@@ -104,6 +106,8 @@ uv run build_trajectory.py A/RES/78/220 --pretty -o trajectory_A_RES_78_220.json
 #   • stitches agenda, drafts, committee reports, and plenary meetings into timesteps
 #   • emits metadata + per-timestep state/action/observation blocks for the MARL env
 ```
+
+Each timestep currently ends up in one of five coarse stages (`agenda_allocation`, `draft_submission`, `committee_vote`, `plenary_discussion`, `plenary_vote`) and stores three payloads: `state` (document symbol, dates, meeting numbers), `action` (sponsor, vote rolls, statements), and `observation` (publication/distribution flags plus tallies). This is the contract the RL env consumes, so tweak the builder before changing downstream agents.
 
 You can restrict output formatting with `--pretty` (pretty-print JSON) and point to a custom filename via `-o/--output`. The script prints a quick timeline summary when the build finishes.
 
@@ -121,7 +125,13 @@ uv run visualize_trajectory.py trajectory_A_RES_78_220.json \
     --countries               # summarize actions per country
 ```
 
-`visualize_trajectory.py` only reads the saved JSON, so you can share trajectories with teammates and inspect them without needing the full scrape.
+`--comparison` reproduces committee vs plenary deltas, while `--countries` aggregates everything a country did (sponsorship + votes) into a mini action log. The visualizer only reads the saved JSON, so you can share trajectories with teammates and inspect them without needing the full scrape.
+
+🗂️  `viz/` contains finished outputs for the Iran case study (`A/RES/78/220`):
+- `viz/analyze_iran_genealogy.py` → `viz/analysis_iran_genealogy.json` + `viz/analysis_iran_genealogy_report.md` (timeline, vote comparison, data availability table)
+- `viz/iran_graph.html`, `viz/ukr_graph.html`, etc. → static previews emitted by `trace_genealogy.py --graph-html`
+
+Use these artifacts as reference when evaluating whether a new session has enough coverage to build trajectories.
 
 ### Fetch specific document types
 
