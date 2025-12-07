@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -14,6 +16,22 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from db.config import engine
 from text_to_sql import generate_sql
+from rag_summarize import summarize_results
+
+# Set up logging
+LOG_DIR = Path(__file__).parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "text_to_sql.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
@@ -93,6 +111,7 @@ def healthcheck() -> Dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    demo_mode = request.query_params.get("demo", "false").lower() == "true"
     return templates.TemplateResponse(
         "index.html",
         {
@@ -101,16 +120,22 @@ def home(request: Request):
             "result": None,
             "error": None,
             "samples": SAMPLE_QUERIES,
+            "natural_language_query": "",
+            "demo_mode": demo_mode,
         },
     )
 
 
 @app.post("/", response_class=HTMLResponse)
 def run_query(request: Request, sql_query: str = Form(...)):
+    demo_mode = request.query_params.get("demo", "false").lower() == "true"
     sql_query = sql_query.strip()
+    logger.info(f"Direct SQL query: {sql_query}")
+    
     allowed, message = is_query_allowed(sql_query)
 
     if not allowed:
+        logger.warning(f"Query not allowed: {message}")
         return templates.TemplateResponse(
             "index.html",
             {
@@ -119,21 +144,28 @@ def run_query(request: Request, sql_query: str = Form(...)):
                 "result": None,
                 "error": message,
                 "samples": SAMPLE_QUERIES,
+                "natural_language_query": "",
+                "demo_mode": demo_mode,
             },
             status_code=400,
         )
 
     try:
         result = execute_sql(sql_query)
+        logger.info(f"SQL executed successfully - Rows returned: {result['row_count']}, Truncated: {result['truncated']}")
+        
         context = {
             "request": request,
             "sql_query": sql_query,
             "result": result,
             "error": None,
             "samples": SAMPLE_QUERIES,
+            "natural_language_query": "",
+            "demo_mode": demo_mode,
         }
         return templates.TemplateResponse("index.html", context)
     except SQLAlchemyError as exc:
+        logger.error(f"SQL execution failed: {str(exc)}")
         return templates.TemplateResponse(
             "index.html",
             {
@@ -142,6 +174,8 @@ def run_query(request: Request, sql_query: str = Form(...)):
                 "result": None,
                 "error": str(exc),
                 "samples": SAMPLE_QUERIES,
+                "natural_language_query": "",
+                "demo_mode": demo_mode,
             },
             status_code=400,
         )
@@ -151,12 +185,17 @@ def run_query(request: Request, sql_query: str = Form(...)):
 def api_query(sql_query: str = Form(...)):
     """Programmatic access point for automation."""
     sql_query = sql_query.strip()
+    logger.info(f"API SQL query: {sql_query}")
+    
     allowed, message = is_query_allowed(sql_query)
     if not allowed:
+        logger.warning(f"Query not allowed: {message}")
         return JSONResponse({"error": message}, status_code=400)
 
     try:
         result = execute_sql(sql_query)
+        logger.info(f"SQL executed successfully - Rows returned: {result['row_count']}, Truncated: {result['truncated']}")
+        
         # Convert values back to strings for JSON response
         json_rows = []
         for row in result["rows"]:
@@ -169,46 +208,92 @@ def api_query(sql_query: str = Form(...)):
             "rows": json_rows,
         }
     except SQLAlchemyError as exc:
+        logger.error(f"SQL execution failed: {str(exc)}")
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
 @app.post("/api/text-to-sql")
-def api_text_to_sql(natural_language_query: str = Form(...), execute: bool = Form(False)):
+def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL, optionally execute it."""
+    if not natural_language_query:
+        return JSONResponse({"error": "natural_language_query field is required"}, status_code=400)
+    
+    # Log the natural language query
+    logger.info(f"Text-to-SQL API request - Natural language: {natural_language_query}")
+    
     try:
         sql_query = generate_sql(natural_language_query)
+        logger.info(f"Generated SQL: {sql_query}")
         
         if execute:
             allowed, message = is_query_allowed(sql_query)
             if not allowed:
-                return JSONResponse({"error": f"Generated query not allowed: {message}", "sql": sql_query}, status_code=400)
+                logger.warning(f"Generated query not allowed: {message}")
+                return JSONResponse({
+                    "error": f"Generated query not allowed: {message}", 
+                    "sql": sql_query,
+                    "natural_language_query": natural_language_query
+                }, status_code=400)
             
             try:
                 result = execute_sql(sql_query)
+                logger.info(f"SQL executed successfully - Rows returned: {result['row_count']}, Truncated: {result['truncated']}")
+                
                 json_rows = []
                 for row in result["rows"]:
                     json_rows.append({col: cell["full"] for col, cell in row.items()})
                 
                 return {
                     "sql": sql_query,
+                    "natural_language_query": natural_language_query,
                     "columns": result["columns"],
                     "row_count": result["row_count"],
                     "truncated": result["truncated"],
                     "rows": json_rows,
                 }
             except SQLAlchemyError as exc:
-                return JSONResponse({"error": f"SQL execution failed: {str(exc)}", "sql": sql_query}, status_code=400)
+                logger.error(f"SQL execution failed: {str(exc)}")
+                return JSONResponse({
+                    "error": f"SQL execution failed: {str(exc)}", 
+                    "sql": sql_query,
+                    "natural_language_query": natural_language_query
+                }, status_code=400)
         else:
-            return {"sql": sql_query}
+            logger.info("SQL generated but not executed")
+            return {
+                "sql": sql_query,
+                "natural_language_query": natural_language_query
+            }
     except Exception as exc:
+        logger.error(f"Text-to-SQL generation failed: {str(exc)}", exc_info=True)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/text-to-sql", response_class=HTMLResponse)
-def text_to_sql_query(request: Request, natural_language_query: str = Form(...), execute: bool = Form(False)):
+def text_to_sql_query(request: Request, natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL and optionally execute it."""
+    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    if not natural_language_query:
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "sql_query": "",
+                "result": None,
+                "error": "natural_language_query field is required",
+                "samples": SAMPLE_QUERIES,
+                "natural_language_query": "",
+                "demo_mode": demo_mode,
+            },
+            status_code=400,
+        )
+    
+    # Log the natural language query
+    logger.info(f"Text-to-SQL UI request - Natural language: {natural_language_query}")
+    
     try:
         sql_query = generate_sql(natural_language_query)
+        logger.info(f"Generated SQL: {sql_query}")
         
         if execute:
             allowed, message = is_query_allowed(sql_query)
@@ -222,12 +307,15 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(...),
                         "error": f"Generated query not allowed: {message}",
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
+                        "demo_mode": demo_mode,
                     },
                     status_code=400,
                 )
             
             try:
                 result = execute_sql(sql_query)
+                logger.info(f"SQL executed successfully - Rows returned: {result['row_count']}, Truncated: {result['truncated']}")
+                
                 return templates.TemplateResponse(
                     "index.html",
                     {
@@ -237,9 +325,11 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(...),
                         "error": None,
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
+                        "demo_mode": demo_mode,
                     },
                 )
             except SQLAlchemyError as exc:
+                logger.error(f"SQL execution failed: {str(exc)}")
                 return templates.TemplateResponse(
                     "index.html",
                     {
@@ -249,11 +339,13 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(...),
                         "error": f"SQL execution failed: {str(exc)}",
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
+                        "demo_mode": demo_mode,
                     },
                     status_code=400,
                 )
         else:
             # Just show the generated SQL
+            logger.info("SQL generated but not executed")
             return templates.TemplateResponse(
                 "index.html",
                 {
@@ -263,9 +355,11 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(...),
                     "error": None,
                     "samples": SAMPLE_QUERIES,
                     "natural_language_query": natural_language_query,
+                    "demo_mode": demo_mode,
                 },
             )
     except Exception as exc:
+        logger.error(f"Text-to-SQL generation failed: {str(exc)}", exc_info=True)
         return templates.TemplateResponse(
             "index.html",
             {
@@ -275,6 +369,48 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(...),
                 "error": f"Failed to generate SQL: {str(exc)}",
                 "samples": SAMPLE_QUERIES,
                 "natural_language_query": natural_language_query,
+                "demo_mode": demo_mode,
             },
             status_code=500,
         )
+
+
+@app.post("/api/summarize")
+def api_summarize(
+    sql_query: str = Form(None),
+    natural_language_query: str = Form(None),
+    result_json: str = Form(None)
+):
+    """
+    Summarize SQL query results using RAG.
+    
+    Requires:
+    - Either sql_query (for direct SQL) or natural_language_query (for text-to-SQL)
+    - result_json: JSON string of the query results from execute_sql
+    """
+    logger.info(f"Summarization API request - SQL: {sql_query}, NL: {natural_language_query}")
+    
+    # Determine the original question
+    original_question = natural_language_query or "Summarize these results"
+    
+    if not result_json:
+        return JSONResponse({"error": "result_json field is required"}, status_code=400)
+    
+    try:
+        # Parse the result JSON
+        result = json.loads(result_json)
+        
+        # Summarize the results
+        summary = summarize_results(result, original_question)
+        
+        return {
+            "summary": summary,
+            "original_question": original_question,
+            "row_count": result.get("row_count", 0)
+        }
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid JSON in result_json: {str(exc)}")
+        return JSONResponse({"error": f"Invalid JSON: {str(exc)}"}, status_code=400)
+    except Exception as exc:
+        logger.error(f"Summarization failed: {str(exc)}", exc_info=True)
+        return JSONResponse({"error": str(exc)}, status_code=500)

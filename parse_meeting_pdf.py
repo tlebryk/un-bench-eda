@@ -21,8 +21,20 @@ import pdfplumber
 
 
 DOC_PATTERN = re.compile(r'\b[A-Z]/[\dA-Z]+(?:/[A-Z0-9.\-]+)+\b')
-AGENDA_PATTERN = re.compile(
+# Pattern for single agenda item: "Agenda item 11" or "Agenda item 11 (continued)"
+AGENDA_PATTERN_SINGLE = re.compile(
     r'^\s*Agenda item\s+(?P<number>\d+[A-Za-z]*)\s*(?P<rest>\([^)]+\))?(?P<title>.*)$',
+    re.IGNORECASE,
+)
+# Pattern for agenda item range: "Agenda items 90 to 106" or "Agenda items 90-106"
+AGENDA_PATTERN_RANGE = re.compile(
+    r'^\s*Agenda items\s+(?P<start>\d+[A-Za-z]*)\s+(?:to|-)\s+(?P<end>\d+[A-Za-z]*)\s*(?P<rest>\([^)]+\))?(?P<title>.*)$',
+    re.IGNORECASE,
+)
+# Combined pattern that tries both
+# Handles: "Agenda item 7", "Agenda items 90 to 106", "Agenda items 90-106"
+AGENDA_PATTERN = re.compile(
+    r'^\s*Agenda items?\s+(?P<number_or_start>\d+[A-Za-z]*)(?:(?:\s+(?:to|-)\s+|\s*-\s*)(?P<end>\d+[A-Za-z]*))?\s*(?P<rest>\([^)]+\))?(?P<title>.*)$',
     re.IGNORECASE,
 )
 SPEAKER_PATTERN = re.compile(
@@ -200,7 +212,14 @@ def _process_column_text(column_texts: List[Tuple[str, Optional[int], int]]) -> 
         if column is None:
             continue
         for match in AGENDA_PATTERN.finditer(text):
-            agenda_num = match.group('number')
+            # Handle both single items and ranges
+            start = match.group('number_or_start')
+            end = match.group('end')
+            if end:
+                # For ranges, use the range string
+                agenda_num = f"{start}-{end}"
+            else:
+                agenda_num = start
             # Use the column where this agenda item was found
             agenda_column_map[agenda_num] = column
     
@@ -230,7 +249,13 @@ def _process_column_text(column_texts: List[Tuple[str, Optional[int], int]]) -> 
                 # Check if this line starts a new agenda item
                 agenda_match = AGENDA_PATTERN.match(line)
                 if agenda_match:
-                    agenda_num = agenda_match.group('number')
+                    # Handle both single items and ranges
+                    start = agenda_match.group('number_or_start')
+                    end = agenda_match.group('end')
+                    if end:
+                        agenda_num = f"{start}-{end}"
+                    else:
+                        agenda_num = start
                     # Update current column to match this agenda item's column
                     current_agenda_column = agenda_column_map.get(agenda_num)
                     result_lines.append(line)
@@ -336,9 +361,16 @@ def extract_metadata(text: str) -> Dict[str, Any]:
 
 
 def extract_all_agenda_items(text: str) -> List[str]:
+    """Extract all agenda item mentions from text (both single items and ranges)."""
     items = []
-    for match in re.finditer(r'Agenda item\s+\d+[^\n]*', text, re.IGNORECASE):
-        items.append(collapse(match.group(0)))
+    # Match both single items and ranges
+    for match in AGENDA_PATTERN.finditer(text):
+        start = match.group('number_or_start')
+        end = match.group('end')
+        if end:
+            items.append(f"Agenda items {start} to {end}")
+        else:
+            items.append(f"Agenda item {start}")
     return items
 
 
@@ -809,14 +841,46 @@ def parse_sections(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         agenda_match = AGENDA_PATTERN.match(line)
         if agenda_match:
             close_current_section()
-            current_section = {
-                'agenda_item_number': agenda_match.group('number'),
-                'agenda_item_note': (agenda_match.group('rest') or '').strip() or None,
-                'raw_agenda_line': collapse(line),
-                'preamble': [],
-                'documents': [],
-                'utterances': [],
-            }
+            
+            # Check if this is a range or single item
+            start = agenda_match.group('number_or_start')
+            end = agenda_match.group('end')
+            
+            if end:
+                # This is a range: "Agenda items 90 to 106"
+                try:
+                    start_num = int(re.sub(r'[A-Za-z]', '', start))
+                    end_num = int(re.sub(r'[A-Za-z]', '', end))
+                    # Generate list of all agenda item numbers in range
+                    agenda_item_numbers = [str(i) for i in range(start_num, end_num + 1)]
+                    # Store range as "90-106" for backward compatibility
+                    agenda_item_number = f"{start}-{end}"
+                except ValueError:
+                    # Fallback if parsing fails
+                    agenda_item_numbers = [start, end]
+                    agenda_item_number = f"{start}-{end}"
+                
+                current_section = {
+                    'agenda_item_number': agenda_item_number,
+                    'agenda_item_numbers': agenda_item_numbers,  # List of all numbers in range
+                    'agenda_item_range': {'start': start, 'end': end},  # Range metadata
+                    'agenda_item_note': (agenda_match.group('rest') or '').strip() or None,
+                    'raw_agenda_line': collapse(line),
+                    'preamble': [],
+                    'documents': [],
+                    'utterances': [],
+                }
+            else:
+                # Single agenda item: "Agenda item 11"
+                current_section = {
+                    'agenda_item_number': start,
+                    'agenda_item_numbers': [start],  # Single-item list for consistency
+                    'agenda_item_note': (agenda_match.group('rest') or '').strip() or None,
+                    'raw_agenda_line': collapse(line),
+                    'preamble': [],
+                    'documents': [],
+                    'utterances': [],
+                }
             continue
 
         if current_section is None:
@@ -953,6 +1017,7 @@ def parse_meeting_file(file_path: str) -> Dict[str, Any]:
         metadata['id'] = doc_symbol
         for i, section in enumerate(sections):
             agenda_num = section.get('agenda_item_number', f"s{i+1}")
+            # For ranges, use the range string (e.g., "90-106") in the ID
             section['id'] = f"{doc_symbol}_section_{agenda_num}"
             for j, utterance in enumerate(section.get('utterances', [])):
                 utterance['id'] = f"{section['id']}_utterance_{j+1}"
