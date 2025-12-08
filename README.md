@@ -229,3 +229,6 @@ data/
 - `un_document_structure.md` - UN document naming conventions
 - `new_scrape_plan.md` - Document collection requirements
 - `ENGINEERING_NOTEBOOK.md` - Implementation notes and known issues
+
+# UI
+uv run uvicorn ui.app:app --reload
