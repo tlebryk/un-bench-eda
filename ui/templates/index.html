@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>UN Documents SQL UI</title>
+    <title>UNGA Research Tool</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
@@ -43,7 +43,7 @@
         h1, h2, h3 {
             font-family: var(--font-sans);
             font-weight: 700;
-            color: var(--hks-dark-blue);
+            color: var(--hks-charcoal);
         }
 
         h1 {
@@ -91,7 +91,7 @@
             background-color: var(--hks-light-gray);
             font-family: var(--font-sans);
             font-weight: 600;
-            color: var(--hks-dark-blue);
+            color: var(--hks-charcoal);
         }
 
         td {
@@ -126,7 +126,7 @@
         details summary {
             cursor: pointer;
             font-weight: 600;
-            color: var(--hks-blue);
+            color: var(--hks-charcoal);
         }
         
         .samples {
@@ -293,6 +293,106 @@
             vertical-align: middle;
         }
 
+        .cell-doc-link {
+            margin-top: 0.35rem;
+        }
+
+        .doc-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--hks-charcoal);
+            text-decoration: none;
+        }
+
+        .doc-link::before {
+            content: "📄";
+        }
+
+        .doc-link:hover {
+            text-decoration: underline;
+        }
+
+        .btn-link {
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+            color: var(--hks-charcoal);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .btn-link:hover {
+            text-decoration: none;
+        }
+
+        .cell-actions {
+            margin-top: 0.35rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .long-text-cell {
+            min-width: 420px;
+        }
+
+        .text-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+
+        .text-modal.active {
+            display: flex;
+        }
+
+        .text-modal-content {
+            background: var(--hks-white);
+            border-radius: 6px;
+            padding: 1.75rem;
+            max-width: 1000px;
+            width: min(1000px, 95%);
+            max-height: 85vh;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .text-modal-close {
+            border: none;
+            background: none;
+            font-size: 1.1rem;
+            font-weight: 700;
+            float: right;
+            cursor: pointer;
+            color: var(--hks-charcoal);
+        }
+
+        .text-modal-body-wrapper {
+            margin-top: 1rem;
+            overflow-y: auto;
+            max-height: 100%;
+        }
+
+        .text-modal-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: var(--font-serif);
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
@@ -362,7 +462,7 @@
                 <tr>
                     {% for column in result.columns %}
                     {% set cell = row[column] %}
-                    <td>
+                    <td class="{% if cell.long_column %}long-text-cell{% endif %}">
                         {% if cell.truncated %}
                         <details>
                             <summary>{{ cell.display }}</summary>
@@ -370,6 +470,16 @@
                         </details>
                         {% else %}
                         <pre>{{ cell.display }}</pre>
+                        {% endif %}
+                        {% if cell.long_text or cell.link %}
+                        <div class="cell-actions">
+                            {% if cell.long_text %}
+                            <button type="button" class="btn-link text-expand-btn" data-full-text="{{ cell.long_text | e }}" data-column-name="{{ column }}">Read full text</button>
+                            {% endif %}
+                            {% if cell.link %}
+                            <a href="{{ cell.link }}" target="_blank" rel="noopener" class="doc-link">View PDF</a>
+                            {% endif %}
+                        </div>
                         {% endif %}
                     </td>
                     {% endfor %}
@@ -392,6 +502,16 @@
         {% endfor %}
     </div>
     {% endif %}
+
+    <div id="text-modal" class="text-modal" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="text-modal-content">
+            <button type="button" class="text-modal-close" id="text-modal-close" aria-label="Close full text">&times;</button>
+            <h3 id="text-modal-title">Full Text</h3>
+            <div class="text-modal-body-wrapper">
+                <pre id="text-modal-body"></pre>
+            </div>
+        </div>
+    </div>
 
     <script>
         {% if not demo_mode %}
@@ -473,6 +593,51 @@
                 }
             });
         }
+
+        const textModal = document.getElementById('text-modal');
+        const textModalBody = document.getElementById('text-modal-body');
+        const textModalTitle = document.getElementById('text-modal-title');
+        const textModalClose = document.getElementById('text-modal-close');
+
+        function openTextModal(content, title) {
+            if (!textModal || !textModalBody) return;
+            textModalBody.textContent = content || '';
+            if (textModalTitle) {
+                textModalTitle.textContent = title || 'Full Text';
+            }
+            textModal.classList.add('active');
+            textModal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeTextModal() {
+            if (!textModal) return;
+            textModal.classList.remove('active');
+            textModal.setAttribute('aria-hidden', 'true');
+        }
+
+        document.querySelectorAll('.text-expand-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                openTextModal(button.dataset.fullText || '', button.dataset.columnName || 'Full Text');
+            });
+        });
+
+        if (textModalClose) {
+            textModalClose.addEventListener('click', closeTextModal);
+        }
+
+        if (textModal) {
+            textModal.addEventListener('click', event => {
+                if (event.target === textModal) {
+                    closeTextModal();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                closeTextModal();
+            }
+        });
 
         const loadingOverlay = document.getElementById('loading-overlay');
         const loadingTextEl = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;

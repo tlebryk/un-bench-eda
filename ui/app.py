@@ -6,7 +6,8 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Set, Optional
+import re
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -14,7 +15,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.config import engine
+from db.config import engine, get_session
+from db.models import Document
 from text_to_sql import generate_sql
 from rag_summarize import summarize_results
 
@@ -39,6 +41,26 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 MAX_ROWS = 500
 MAX_DISPLAY_CHARS = 600
 ALLOWED_PREFIXES = ("select", "with", "explain")
+LONG_TEXT_COLUMNS = {
+    "text",
+    "context",
+    "description",
+    "notes",
+    "summary",
+    "content",
+}
+LONG_TEXT_PREVIEW_CHARS = 320
+DOCUMENT_ID_COLUMN_HINTS = {
+    "document_id",
+    "doc_id",
+    "source_id",
+    "target_id",
+    "meeting_id",
+    "resolution_id",
+    "draft_id",
+    "agenda_id",
+}
+SYMBOL_PATTERN = re.compile(r"[A-Z]/[A-Z0-9]", re.IGNORECASE)
 
 SAMPLE_QUERIES = [
     "SELECT symbol, title, date FROM documents WHERE doc_type = 'resolution' ORDER BY date DESC LIMIT 5;",
@@ -68,6 +90,124 @@ def format_value(value: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_symbol(symbol: str) -> str:
+    """Normalize symbols like A_RES_78_220 -> A/RES/78/220."""
+    return symbol.strip().upper().replace("\\", "/").replace("_", "/")
+
+
+def looks_like_symbol(value: str) -> bool:
+    """Heuristic check to avoid treating arbitrary text as a document symbol."""
+    normalized = normalize_symbol(value)
+    if "/" not in normalized:
+        return False
+    return bool(SYMBOL_PATTERN.search(normalized))
+
+
+def pick_pdf_url(metadata: Dict[str, Any]) -> Optional[str]:
+    """Select the best PDF URL from metadata, preferring English when available."""
+    if not metadata:
+        return None
+
+    files = metadata.get("files")
+    if not files:
+        files = metadata.get("metadata", {}).get("files")
+
+    if not files or not isinstance(files, list):
+        return None
+
+    def _language_key(entry: Dict[str, Any]) -> str:
+        return (entry.get("language") or "").lower()
+
+    english_entry = next((f for f in files if "english" in _language_key(f)), None)
+    entry = english_entry or files[0]
+    return entry.get("url")
+
+
+def fetch_document_links(symbols: Set[str], ids: Set[int]) -> Tuple[Dict[str, str], Dict[int, str]]:
+    """Fetch document -> PDF link mappings for the provided identifiers."""
+    if not symbols and not ids:
+        return {}, {}
+
+    session = get_session()
+    symbol_map: Dict[str, str] = {}
+    id_map: Dict[int, str] = {}
+
+    try:
+        query_symbols = list(symbols)
+        if query_symbols:
+            docs = session.query(Document).filter(Document.symbol.in_(query_symbols)).all()
+            for doc in docs:
+                url = pick_pdf_url(doc.doc_metadata)
+                if not url:
+                    record_id = (doc.doc_metadata or {}).get("id") or (doc.doc_metadata or {}).get("metadata", {}).get("record_id")
+                    if record_id:
+                        url = f"https://digitallibrary.un.org/record/{record_id}?ln=en"
+                if url:
+                    symbol_map[normalize_symbol(doc.symbol)] = url
+                    id_map[doc.id] = url
+
+        remaining_ids = [doc_id for doc_id in ids if doc_id not in id_map]
+        if remaining_ids:
+            docs = session.query(Document).filter(Document.id.in_(remaining_ids)).all()
+            for doc in docs:
+                url = pick_pdf_url(doc.doc_metadata)
+                if not url:
+                    record_id = (doc.doc_metadata or {}).get("id") or (doc.doc_metadata or {}).get("metadata", {}).get("record_id")
+                    if record_id:
+                        url = f"https://digitallibrary.un.org/record/{record_id}?ln=en"
+                if url:
+                    symbol_map.setdefault(normalize_symbol(doc.symbol), url)
+                    id_map[doc.id] = url
+
+    finally:
+        session.close()
+
+    return symbol_map, id_map
+
+
+def annotate_document_links(formatted_rows: List[Dict[str, Dict[str, Any]]], raw_rows: List[Dict[str, Any]]) -> None:
+    """Attach PDF links to result cells when we can infer a document reference."""
+    if not formatted_rows:
+        return
+
+    symbol_refs: Set[str] = set()
+    id_refs: Set[int] = set()
+
+    for raw_row in raw_rows:
+        for column, value in raw_row.items():
+            if value is None:
+                continue
+            column_lower = column.lower()
+
+            if isinstance(value, str):
+                if "symbol" in column_lower or looks_like_symbol(value):
+                    symbol_refs.add(normalize_symbol(value))
+            elif isinstance(value, int):
+                if column_lower in DOCUMENT_ID_COLUMN_HINTS or column_lower.endswith("document_id") or column_lower.endswith("_doc_id"):
+                    id_refs.add(value)
+
+    symbol_map, id_map = fetch_document_links(symbol_refs, id_refs)
+    if not symbol_map and not id_map:
+        return
+
+    for row_dict, raw_row in zip(formatted_rows, raw_rows):
+        for column, cell in row_dict.items():
+            raw_value = raw_row.get(column)
+            if raw_value is None:
+                continue
+            column_lower = column.lower()
+            link: Optional[str] = None
+
+            if isinstance(raw_value, str):
+                normalized = normalize_symbol(raw_value)
+                link = symbol_map.get(normalized)
+            elif isinstance(raw_value, int):
+                if column_lower in DOCUMENT_ID_COLUMN_HINTS or column_lower.endswith("document_id") or column_lower.endswith("_doc_id"):
+                    link = id_map.get(raw_value)
+
+            if link:
+                cell["link"] = link
+
 def is_query_allowed(sql_query: str) -> Tuple[bool, str]:
     """Basic guardrail: restrict to read-only SQL statements."""
     stripped = sql_query.strip().lower()
@@ -89,11 +229,27 @@ def execute_sql(sql_query: str) -> Dict[str, Any]:
         rows = result.fetchall()
 
     formatted_rows = []
+    raw_rows = []
     for row in rows[:MAX_ROWS]:
+        row_mapping = dict(row._mapping)
+        raw_rows.append(row_mapping)
         row_dict = {}
         for column in columns:
-            row_dict[column] = format_value(row._mapping[column])
+            column_lower = column.lower()
+            formatted = format_value(row_mapping.get(column))
+
+            if column_lower in LONG_TEXT_COLUMNS:
+                formatted["long_column"] = True
+                raw_value = row_mapping.get(column)
+                if isinstance(raw_value, str) and len(raw_value) > LONG_TEXT_PREVIEW_CHARS:
+                    preview = raw_value[:LONG_TEXT_PREVIEW_CHARS].rstrip()
+                    formatted["display"] = f"{preview}…"
+                    formatted["long_text"] = raw_value
+
+            row_dict[column] = formatted
         formatted_rows.append(row_dict)
+
+    annotate_document_links(formatted_rows, raw_rows)
 
     truncated = len(rows) > MAX_ROWS
     return {
