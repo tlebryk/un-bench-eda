@@ -1,0 +1,385 @@
+{
+  "trajectory_id": "A/RES/78/196",
+  "metadata": {
+    "symbol": "A/RES/78/196",
+    "title": "Promotion of a democratic and equitable international order : resolution / adopted by the General Assembly",
+    "session": 78,
+    "committee": 3,
+    "agenda_item": "71b",
+    "final_outcome": "adopted"
+  },
+  "timesteps": [
+    {
+      "date": "[New York] : UN, 8 Sept. 2023",
+      "stage": "agenda_allocation",
+      "action_type": "allocate_to_committee",
+      "state": {
+        "agenda_symbol": "A/78/251",
+        "item_number": 71,
+        "sub_item": "b",
+        "title": "Human rights questions, including alternative approaches for improving the effective enjoyment of human rights and fundamental freedoms. HUMAN RIGHTS ADVANCEMENT"
+      },
+      "action": {
+        "actor": "General Assembly",
+        "type": "allocate_agenda_item",
+        "committee": 3
+      },
+      "observation": {
+        "public": true,
+        "agenda_published": true
+      },
+      "t": 0
+    },
+    {
+      "date": "[New York] : UN, 8 Sept. 2023",
+      "stage": "agenda_allocation",
+      "action_type": "allocate_to_committee",
+      "state": {
+        "agenda_symbol": "A/78/251",
+        "item_number": null,
+        "sub_item": null,
+        "title": "71b[31] DEMOCRACY"
+      },
+      "action": {
+        "actor": "General Assembly",
+        "type": "allocate_agenda_item",
+        "committee": 3
+      },
+      "observation": {
+        "public": true,
+        "agenda_published": true
+      },
+      "t": 1
+    },
+    {
+      "date": "[New York] : UN, 30 Oct. 2023",
+      "stage": "draft_submission",
+      "action_type": "submit_draft",
+      "state": {
+        "draft_symbol": "A/C.3/78/L.32",
+        "distribution": null,
+        "language": null
+      },
+      "action": {
+        "actor": "Unknown",
+        "type": "submit_draft_resolution",
+        "draft_text": "The General Assembly,\nRecalling its previous resolutions on the promotion of a democratic and\nequitable international order, including resolution 77/215 of 15 December 2022, and\nHuman Rights Council resolutions 18/6 of 29 September 2011,1 33/3 of 29 September\n2016, 2 36/4 of 28 September 2017, 3 39/4 of 27 September 2018, 4 42/8 of\n26 September 2019,5 45/4 of 6 October 2020,6 48/8 of 8 October 20217 , 51/11 of\n6 October 20228 and 54/4 of 11 October 2023,9\nReaffirming the commitment of all States...",
+        "draft_text_full_length": 22737,
+        "sponsors": [],
+        "co_sponsors": []
+      },
+      "observation": {
+        "public": true,
+        "draft_symbol": "A/C.3/78/L.32",
+        "draft_published": true,
+        "sponsor_count": 0
+      },
+      "t": 2
+    },
+    {
+      "date": "2023-12-19",
+      "stage": "plenary_discussion",
+      "action_type": "statements",
+      "state": {
+        "meeting_symbol": "A/78/PV.50",
+        "meeting_number": null
+      },
+      "action": {
+        "actor": "Multiple delegations",
+        "type": "make_statements",
+        "utterances": [
+          {
+            "speaker": "The Acting President",
+            "role": "The Acting President",
+            "text_preview": "The Assembly has before it four draft resolutions recommended by the Committee in paragraph 6 of its report. We will now take a decision on draft resolutions I to IV, one by one. We turn first to draf...",
+            "word_count": 372
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution II is entitled “Enlargement of the Executive Committee of the Programme of the United Nations High Commissioner for Refugees”. A recorded vote has been requested. A recorded vote was ...",
+            "word_count": 305
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "The Assembly has before it a draft resolution recommended by the Committee in its report. We will now take a decision on the draft resolution. A recorded vote has been requested. A recorded vote was t...",
+            "word_count": 315
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "The Assembly has before it three draft resolutions recommended by the Third Committee in paragraph 34 of its report. We will now take a decision on draft resolutions I to III, one by one. We first tur...",
+            "word_count": 365
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution II is entitled “The right of the Palestinian people to self-determination”. A recorded vote has been requested. A recorded vote was taken. In favour: Albania, Algeria, Andorra, Angola...",
+            "word_count": 312
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "The Assembly has before it 23 draft resolutions recommended by the Committee in its report. Before proceeding further, I should like to inform members that action on draft resolution XXIII, entitled “...",
+            "word_count": 414
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution V is entitled “Promotion of equitable geographical distribution in the membership of the human rights treaty bodies”. A recorded vote has been requested. A recorded vote was taken. In...",
+            "word_count": 316
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution VI is entitled “Human rights and cultural diversity”. A recorded vote has been requested. A recorded vote was taken. In favour: Algeria, Angola, Antigua and Barbuda, Argentina, Armeni...",
+            "word_count": 312
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution VII is entitled “Human rights and unilateral coercive measures”. A recorded vote has been requested. A recorded vote was taken. In favour: Algeria, Angola, Antigua and Barbuda, Argent...",
+            "word_count": 318
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution VIII is entitled “The right to development”. A recorded vote has been requested. A recorded vote was taken. 23-41218 19/12/2023 In favour: Algeria, Angola, Antigua and Barbuda, Argent...",
+            "word_count": 309
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution XIII is entitled “Strengthening the role of the United Nations in the promotion of democratization and enhancing periodic and genuine elections”. A recorded vote has been requested. A...",
+            "word_count": 333
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution XIV is entitled “United Nations Human Rights Training and 20/34 19/12/2023 Documentation Centre for South-West Asia and the Arab Region”. A recorded vote has been requested. A recorde...",
+            "word_count": 325
+          },
+          {
+            "speaker": "Arab Bafrani",
+            "role": "Unknown",
+            "text_preview": "I deliver this statement before the adoption of draft resolution III, under sub-item (c) of agenda item 71, entitled “Situation of human rights in the Islamic Republic of Iran. There is profound polit...",
+            "word_count": 1990
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution III is entitled “Situation of human rights in the Islamic Republic of Iran”. A recorded vote has been requested. A recorded vote was taken. In favour: Albania, Andorra, Argentina, Aus...",
+            "word_count": 315
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution IV is entitled “Situation of human rights in the temporarily occupied territories of Ukraine, including the Autonomous Republic of Crimea and the city of Sevastopol”. A recorded vote ...",
+            "word_count": 309
+          },
+          {
+            "speaker": "The President",
+            "role": "The President",
+            "text_preview": "Draft resolution V is entitled “Situation of human rights in the Syrian Arab Republic”. A recorded vote has been requested. A recorded vote was taken. In favour: Albania, Andorra, Argentina, Australia...",
+            "word_count": 299
+          },
+          {
+            "speaker": "González Behmaras (Cuba)",
+            "role": "Unknown",
+            "text_preview": "My delegation does not support mandates or resolutions that are the result of selective, discriminatory and politically motivated exercises and that do not have the support of the country concerned. S...",
+            "word_count": 750
+          }
+        ]
+      },
+      "observation": {
+        "public": true,
+        "statement_count": 17
+      },
+      "t": 3
+    },
+    {
+      "date": "2023-12-19",
+      "stage": "plenary_vote",
+      "action_type": "recorded_vote",
+      "state": {
+        "resolution_symbol": "A/RES/78/196",
+        "meeting_symbol": "A/78/PV.50"
+      },
+      "action": {
+        "actor": "General Assembly Members",
+        "type": "vote_on_resolution",
+        "votes": {
+          "in_favour": [
+            "Algeria",
+            "Angola",
+            "Antigua and Barbuda",
+            "Argentina",
+            "Azerbaijan",
+            "Bahamas",
+            "Bahrain",
+            "Bangladesh",
+            "Barbados",
+            "Belarus",
+            "Belize",
+            "Benin",
+            "Bhutan",
+            "Bolivia (Plurinational State of)",
+            "Botswana",
+            "Brazil",
+            "Brunei Darussalam",
+            "Burkina Faso",
+            "Burundi",
+            "Cabo Verde",
+            "Cambodia",
+            "Cameroon",
+            "Central African Republic",
+            "Chad",
+            "China",
+            "Colombia",
+            "Comoros",
+            "Congo",
+            "Côte d’Ivoire",
+            "Cuba",
+            "Democratic People’s Republic of Korea",
+            "Djibouti",
+            "Dominican Republic",
+            "Ecuador",
+            "Egypt",
+            "El Salvador",
+            "Equatorial Guinea",
+            "Eritrea",
+            "Eswatini",
+            "Ethiopia",
+            "Gabon",
+            "Gambia",
+            "Ghana",
+            "Grenada",
+            "Guatemala",
+            "Guinea",
+            "Guinea-Bissau",
+            "Guyana",
+            "Haiti",
+            "Honduras",
+            "India",
+            "Indonesia",
+            "Iran (Islamic Republic of)",
+            "Iraq",
+            "Jamaica",
+            "Jordan",
+            "Kazakhstan",
+            "Kenya",
+            "Kiribati",
+            "Kuwait",
+            "Kyrgyzstan",
+            "Lao People’s Democratic Republic",
+            "Lebanon",
+            "Lesotho",
+            "Libya",
+            "Madagascar",
+            "Malawi",
+            "Malaysia",
+            "Maldives",
+            "Mali",
+            "Mauritania",
+            "Mauritius",
+            "Mongolia",
+            "Morocco",
+            "Mozambique",
+            "Myanmar",
+            "Namibia",
+            "Nauru",
+            "Nepal",
+            "Nicaragua",
+            "Niger",
+            "Nigeria",
+            "Oman",
+            "Pakistan",
+            "Panama",
+            "Papua New Guinea",
+            "Paraguay",
+            "Philippines",
+            "Qatar",
+            "Russian Federation",
+            "Rwanda"
+          ],
+          "against": [
+            "Albania",
+            "Andorra",
+            "Australia",
+            "Austria",
+            "Belgium",
+            "Bosnia and Herzegovina",
+            "Bulgaria",
+            "Canada",
+            "Croatia",
+            "Cyprus",
+            "Czechia",
+            "Denmark",
+            "Estonia",
+            "Finland",
+            "France",
+            "Georgia",
+            "Germany",
+            "Greece",
+            "Hungary",
+            "Iceland",
+            "Ireland",
+            "Israel",
+            "Italy",
+            "Japan",
+            "Latvia",
+            "Liechtenstein",
+            "Lithuania",
+            "Luxembourg",
+            "Malta",
+            "Marshall Islands",
+            "Micronesia (Federated States of)",
+            "Monaco",
+            "Montenegro",
+            "Netherlands (Kingdom of the)",
+            "New Zealand",
+            "North Macedonia",
+            "Norway",
+            "Palau",
+            "Poland",
+            "Portugal",
+            "Republic of Korea",
+            "Republic of Moldova",
+            "Romania",
+            "San Marino",
+            "Serbia",
+            "Slovakia",
+            "Slovenia",
+            "Spain",
+            "Sweden",
+            "Switzerland",
+            "Türkiye",
+            "Ukraine",
+            "United Kingdom of Great Britain and Northern Ireland",
+            "United States of America"
+          ],
+          "abstaining": [
+            "Armenia",
+            "Chile",
+            "Costa Rica",
+            "Mexico",
+            "Peru",
+            "Uruguay"
+          ]
+        }
+      },
+      "observation": {
+        "public": true,
+        "outcome": "adopted",
+        "vote_tally": {
+          "yes": 91,
+          "no": 54,
+          "abstain": 6
+        },
+        "resolution_symbol": "A/RES/78/196"
+      },
+      "t": 4
+    }
+  ]
+}
