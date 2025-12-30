@@ -19,15 +19,15 @@ from typing import Dict, Optional
 import pdfplumber
 
 # Import our utility modules
-from pdf_utils import collapse, remove_footers_headers
-from resolution_metadata import (
+from .pdf_utils import collapse, remove_footers_headers
+from .resolution_metadata import (
     extract_sponsors,
     extract_document_type,
     extract_committee,
     extract_title_enhanced,
     get_html_metadata_path
 )
-from resolution_segmentation import segment_resolution_text
+from .resolution_segmentation import segment_resolution_text
 
 
 def extract_metadata(text: str, pdf_path: Path) -> Dict:

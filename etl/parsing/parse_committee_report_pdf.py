@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pdfplumber
-from pdf_utils import remove_footers_headers, collapse
+from .pdf_utils import remove_footers_headers, collapse
 
 
 DOC_PATTERN = re.compile(r'\b[A-Z]/[\dA-Z]+(?:/[A-Z0-9.\-]+)+\b')
@@ -256,7 +256,7 @@ def parse_draft_resolution_item(text: str, start_pos: int) -> Optional[Dict[str,
     
     # Extract vote lists if present (using the same function from meeting parser)
     # But first, we need to handle committee report format which may have different end markers
-    from parse_meeting_pdf import _extract_vote_lists, _parse_state_list
+    from .parse_meeting_pdf import _extract_vote_lists, _parse_state_list
     
     # In committee reports, vote lists might end with paragraph numbers or "Before the vote"
     # Let's extract vote lists manually with committee report-specific end markers

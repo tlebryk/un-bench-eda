@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """Example usage of the trace_genealogy library."""
 
-from trace_genealogy import UNDocumentIndex, DocumentGenealogy
+import argparse
+from pathlib import Path
+from .trace_genealogy import UNDocumentIndex, DocumentGenealogy
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Example usage of trace_genealogy library")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        help="Root directory for parsed HTML data (default: data/documents/html)"
+    )
+    args = parser.parse_args()
+
     # Initialize
     print("Loading document index...")
-    index = UNDocumentIndex()
+    index = UNDocumentIndex(args.data_root) if args.data_root else UNDocumentIndex()
     genealogy = DocumentGenealogy(index)
     print(f"Loaded {len(index.documents)} documents\n")
 

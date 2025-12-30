@@ -1,6 +1,6 @@
 """SQLAlchemy models for UN documents database"""
 
-from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime

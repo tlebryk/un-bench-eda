@@ -14,10 +14,10 @@ def main():
     print("Testing all document types for session 78...")
     print("="*60)
 
-    # Use fetch_metadata.py with command line args
+    # Use fetch_metadata.py with command line args via uv run -m
     result = subprocess.run([
-        sys.executable,
-        'fetch_metadata.py',
+        'uv', 'run', '-m',
+        'etl.fetch_download.fetch_metadata',
         '78',
         '--base-dir', 'test_data'
     ])

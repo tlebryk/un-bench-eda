@@ -1,19 +1,9 @@
-#!/usr/bin/env python3
 """
-Download HTML metadata pages from digitallibrary.un.org
+Step 3: Download PDFs from parsed metadata
 
-This script downloads the HTML metadata pages for UN documents from the UN Digital Library.
-These pages contain rich metadata including voting records, related documents, draft references,
-committee reports, meeting records, agenda information, and subjects.
-
-Reads from: data/parsed/metadata/*.json
-Saves to: data/documents/html/{type}/ where type is one of:
-  - resolutions
-  - drafts
-  - committee-reports
-  - agenda
-  - meetings
-  - voting
+This script takes the parsed JSON metadata and downloads the actual PDF files.
+Reads from: data/parsed/metadata/
+Saves to: data/documents/pdfs/resolutions/ or data/documents/pdfs/drafts/
 """
 
 import json
@@ -22,64 +12,46 @@ import time
 from pathlib import Path
 import argparse
 
+# Data directories
+RESOLUTIONS_DIR = Path("data/documents/pdfs/resolutions")
+DRAFTS_DIR = Path("data/documents/pdfs/drafts")
+RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
+DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
 
-def record_id_to_digital_library_url(record_id: str) -> str:
+
+def symbol_to_docs_url(symbol: str, language: str = "en") -> str:
     """
-    Convert UN Digital Library record ID to metadata page URL.
+    Convert UN document symbol to documents.un.org API URL for PDF access.
 
-    The Digital Library pages contain rich metadata including:
-    - Vote summary
-    - Draft references
-    - Committee reports
-    - Meeting records
-    - Agenda information
-    - Subjects/topics
-    - Files in multiple languages
+    Uses the Official Document System (ODS) API which reliably serves PDFs.
+    docs.un.org redirects to this endpoint.
 
     Examples:
-        4029926 → https://digitallibrary.un.org/record/4029926?v=pdf
-        4060788 → https://digitallibrary.un.org/record/4060788?v=pdf
-
-    Args:
-        record_id: UN Digital Library record ID (e.g., "4029926")
-
-    Returns:
-        URL to metadata page at digitallibrary.un.org
-    """
-    return f"https://digitallibrary.un.org/record/{record_id}?v=pdf"
-
-
-def symbol_to_metadata_page_url(symbol: str, language: str = "en") -> str:
-    """
-    Convert UN document symbol to docs.un.org metadata page URL (fallback method).
-
-    This is used as a fallback when record_id is not available in the metadata.
-
-    Examples:
-        A/RES/78/276 → https://docs.un.org/en/A/res/78/276
-        A/C.1/78/L.2 → https://docs.un.org/en/A/C.1/78/L.2
-        A/78/251 → https://docs.un.org/en/A/78/251
+        A/RES/78/276 → https://documents.un.org/api/symbol/access?s=A/res/78/276&l=en&t=pdf
+        A/C.1/78/L.2 → https://documents.un.org/api/symbol/access?s=A/C.1/78/L.2&l=en&t=pdf
+        A/78/251 → https://documents.un.org/api/symbol/access?s=A/78/251&l=en&t=pdf
 
     Args:
         symbol: UN document symbol (e.g., A/RES/78/276)
         language: Language code (default: en)
 
     Returns:
-        URL to metadata page at docs.un.org
+        URL to PDF at documents.un.org API
     """
     # Convert RES to lowercase res, keep everything else as-is
     symbol_lower = symbol.replace('/RES/', '/res/')
 
-    return f"https://docs.un.org/{language}/{symbol_lower}"
+    # Construct ODS API URL
+    return f"https://documents.un.org/api/symbol/access?s={symbol_lower}&l={language}&t=pdf"
 
 
-def download_html(url: str, output_path: Path, max_retries: int = 5) -> bool:
+def download_pdf(url: str, output_path: Path, max_retries: int = 5) -> bool:
     """
-    Download HTML content from URL to file with rate limit handling.
+    Download a PDF from URL to file with rate limit handling.
 
     Args:
-        url: HTML page URL
-        output_path: Where to save the HTML
+        url: PDF URL
+        output_path: Where to save the PDF
         max_retries: Maximum retry attempts
 
     Returns:
@@ -87,7 +59,7 @@ def download_html(url: str, output_path: Path, max_retries: int = 5) -> bool:
     """
     for attempt in range(1, max_retries + 1):
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=30, stream=True)
             
             # Handle rate limiting (HTTP 429)
             if response.status_code == 429:
@@ -113,8 +85,9 @@ def download_html(url: str, output_path: Path, max_retries: int = 5) -> bool:
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(response.text)
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
             file_size = output_path.stat().st_size
             print(f"  ✓ Downloaded ({file_size:,} bytes): {output_path.name}")
@@ -135,24 +108,24 @@ def download_html(url: str, output_path: Path, max_retries: int = 5) -> bool:
     return False
 
 
-def download_metadata_html(json_file: str,
-                           output_dir: str = None,
-                           language: str = "en",
-                           max_docs: int = None,
-                           base_dir: str = "data",
-                           delay: float = 1.0):
+def download_documents_from_metadata(json_file: str,
+                                       output_dir: str = None,
+                                       language: str = "en",
+                                       max_docs: int = None,
+                                       english_only: bool = True,
+                                       base_dir: str = "data",
+                                       delay: float = 1.0):
     """
-    Download HTML metadata pages for documents in metadata JSON.
+    Download PDFs for documents in metadata JSON.
 
-    Uses record_id to construct Digital Library URLs (primary method).
-    Falls back to symbol-based docs.un.org URLs if record_id is not available.
+    Uses docs.un.org URLs constructed from symbols (more reliable than Digital Library URLs).
 
     Args:
         json_file: Path to metadata JSON file
-        output_dir: Directory to save HTML (default: auto-detect from filename)
-        language: Language code for fallback docs.un.org URLs (default: "en")
+        output_dir: Directory to save PDFs (default: auto-detect from filename)
+        language: Language code for docs.un.org (default: "en", ignored if english_only=False)
         max_docs: Maximum number of documents to download (None = all)
-        base_dir: Base data directory
+        english_only: If True, download English PDFs (language='en')
         delay: Delay between requests in seconds (default: 1.0)
     """
     print(f"Loading metadata from {json_file}...")
@@ -172,72 +145,58 @@ def download_metadata_html(json_file: str,
         json_parts = Path(json_file).parts
         if 'test_data' in json_parts:
             base_data_dir = Path('test_data')
+        elif 'dev_data' in json_parts:
+            base_data_dir = Path('dev_data')
         elif 'data' in json_parts:
             base_data_dir = Path('data')
         else:
             base_data_dir = Path(base_dir)
-
+        
         if 'resolutions' in json_filename:
-            output_path = base_data_dir / "documents" / "html" / "resolutions"
-            print(f"Auto-detected: Saving resolutions HTML to {output_path}")
+            output_path = base_data_dir / "documents" / "pdfs" / "resolutions"
+            print(f"Auto-detected: Saving resolutions to {output_path}")
         elif 'draft' in json_filename:
-            output_path = base_data_dir / "documents" / "html" / "drafts"
-            print(f"Auto-detected: Saving drafts HTML to {output_path}")
+            output_path = base_data_dir / "documents" / "pdfs" / "drafts"
+            print(f"Auto-detected: Saving drafts to {output_path}")
+        elif 'agenda' in json_filename:
+            output_path = base_data_dir / "documents" / "pdfs" / "agenda"
+            print(f"Auto-detected: Saving agenda to {output_path}")
         elif 'committee-report' in json_filename or 'committee_reports' in json_filename:
             output_path = base_data_dir / "documents" / "html" / "committee-reports"
             print(f"Auto-detected: Saving committee-reports HTML to {output_path}")
-        elif 'agenda' in json_filename:
-            output_path = base_data_dir / "documents" / "html" / "agenda"
-            print(f"Auto-detected: Saving agenda HTML to {output_path}")
         elif 'meeting' in json_filename:
-            output_path = base_data_dir / "documents" / "html" / "meetings"
-            print(f"Auto-detected: Saving meetings HTML to {output_path}")
+            output_path = base_data_dir / "documents" / "pdfs" / "meetings"
+            print(f"Auto-detected: Saving meetings to {output_path}")
         elif 'voting' in json_filename:
-            output_path = base_data_dir / "documents" / "html" / "voting"
-            print(f"Auto-detected: Saving voting HTML to {output_path}")
+            output_path = base_data_dir / "documents" / "pdfs" / "voting"
+            print(f"Auto-detected: Saving voting records to {output_path}")
         else:
-            output_path = base_data_dir / "documents" / "html" / "other"
+            output_path = base_data_dir / "documents" / "pdfs" / "other"
+            output_path.mkdir(parents=True, exist_ok=True)
             print(f"Unknown type: Saving to {output_path}")
     else:
         output_path = Path(output_dir)
-
-    output_path.mkdir(parents=True, exist_ok=True)
-
     downloaded = 0
     failed = 0
-    using_digital_library = 0
-    using_fallback = 0
 
     for i, doc in enumerate(metadata_list, 1):
         symbol = doc.get('symbol', 'UNKNOWN')
-        record_id = doc.get('record_id')
-        
         print(f"\n[{i}/{len(metadata_list)}] {symbol}")
 
-        # Prefer Digital Library URL if record_id is available
-        if record_id:
-            url = record_id_to_digital_library_url(record_id)
-            using_digital_library += 1
-            print(f"  → Digital Library URL: {url}")
-            # Create filename: include symbol if available, otherwise just record_id
-            if symbol and symbol != 'UNKNOWN':
-                safe_symbol = symbol.replace('/', '_').replace(' ', '_')
-                filename = f"{safe_symbol}_record_{record_id}.html"
-            else:
-                filename = f"record_{record_id}.html"
-        elif symbol and symbol != 'UNKNOWN':
-            # Fallback to symbol-based URL
-            url = symbol_to_metadata_page_url(symbol, language=language)
-            using_fallback += 1
-            print(f"  → Fallback URL (docs.un.org): {url}")
-            # Create safe filename from symbol
-            safe_symbol = symbol.replace('/', '_').replace(' ', '_')
-            filename = f"{safe_symbol}.html"
-        else:
-            print(f"  ✗ No symbol or record_id found")
+        # Skip if no symbol
+        if symbol == 'UNKNOWN' or not symbol:
+            print(f"  ✗ No symbol found")
             failed += 1
             continue
 
+        # Construct docs.un.org URL from symbol (more reliable than Digital Library URLs)
+        lang_code = 'en' if english_only else language
+        url = symbol_to_docs_url(symbol, language=lang_code)
+        print(f"  → URL: {url}")
+
+        # Create safe filename from symbol
+        safe_symbol = symbol.replace('/', '_').replace(' ', '_')
+        filename = f"{safe_symbol}.pdf"
         file_path = output_path / filename
 
         # Skip if already exists
@@ -247,7 +206,7 @@ def download_metadata_html(json_file: str,
             continue
 
         # Download
-        if download_html(url, file_path):
+        if download_pdf(url, file_path):
             downloaded += 1
             time.sleep(delay)  # Rate limiting
         else:
@@ -260,40 +219,40 @@ def download_metadata_html(json_file: str,
     print(f"Downloaded: {downloaded}")
     print(f"Failed: {failed}")
     print(f"Success rate: {downloaded/len(metadata_list)*100:.1f}%")
-    print(f"Using Digital Library: {using_digital_library}")
-    print(f"Using fallback (docs.un.org): {using_fallback}")
     print(f"Output directory: {output_path.absolute()}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Download HTML metadata pages from digitallibrary.un.org',
+        description='Download PDFs from parsed metadata JSON files',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Downloads HTML metadata pages from digitallibrary.un.org.
-Uses record_id from metadata to construct Digital Library URLs.
-Falls back to docs.un.org if record_id is not available.
-
 Examples:
-  # Download first 5 resolution metadata pages
-  python download_metadata_html.py data/parsed/metadata/session_78_resolutions.json --max-docs 5
+  # Download first 5 English resolutions (auto-detects output dir)
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json --max-docs 5
   
-  # Download all resolution metadata (auto-detects output dir)
-  python download_metadata_html.py data/parsed/metadata/session_78_resolutions.json
+  # Download all English resolutions (auto-detects: data/documents/pdfs/resolutions/)
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json
+  
+  # Download committee drafts (auto-detects: data/documents/pdfs/drafts/)
+  python download_pdfs.py data/parsed/metadata/session_78_committee_1_drafts.json
   
   # Custom output directory
-  python download_metadata_html.py data/parsed/metadata/session_78_resolutions.json -o custom_dir/
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json -o custom_dir/
+  
+  # Download all languages
+  python download_pdfs.py data/parsed/metadata/session_78_resolutions.json --all-languages
         """
     )
     parser.add_argument('json_file', type=Path, help='Path to metadata JSON file')
     parser.add_argument('-o', '--output', type=Path, default=None,
-                        help='Output directory for HTML files (default: auto-detect from filename)')
+                        help='Output directory for PDFs (default: auto-detect from filename)')
     parser.add_argument('--max-docs', type=int, default=None,
                         help='Maximum number of documents to download (default: all)')
+    parser.add_argument('--all-languages', action='store_true',
+                        help='Download all languages (default: English only)')
     parser.add_argument('--base-dir', type=str, default='data',
                         help='Base data directory (default: data)')
-    parser.add_argument('--language', type=str, default='en',
-                        help='Language code for fallback docs.un.org URLs (default: en)')
     parser.add_argument('--delay', type=float, default=1.0,
                         help='Delay between requests in seconds (default: 1.0)')
 
@@ -302,7 +261,9 @@ Examples:
     json_file = str(args.json_file)
     output_dir = str(args.output) if args.output else None
     max_docs = args.max_docs
+    english_only = not args.all_languages
 
+    print(f"Mode: {'English only' if english_only else 'All languages'}")
     if max_docs:
         print(f"Limit: First {max_docs} documents")
     if output_dir:
@@ -314,9 +275,11 @@ Examples:
     json_parts = Path(json_file).parts
     if 'test_data' in json_parts:
         base_dir = 'test_data'
+    elif 'dev_data' in json_parts:
+        base_dir = 'dev_data'
     elif 'data' in json_parts:
         base_dir = 'data'
     else:
         base_dir = args.base_dir
-
-    download_metadata_html(json_file, output_dir, args.language, max_docs, base_dir, args.delay)
+    
+    download_documents_from_metadata(json_file, output_dir, "en", max_docs, english_only, base_dir, args.delay)

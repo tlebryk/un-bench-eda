@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from trace_genealogy import UNDocumentIndex, DocumentGenealogy
+from .trace_genealogy import UNDocumentIndex, DocumentGenealogy
 
 
 class TrajectoryBuilder:
@@ -106,7 +106,9 @@ class TrajectoryBuilder:
         """Extract final outcome (adopted/rejected)."""
         voting = res_data.get("voting", {})
         if voting:
-            return "adopted" if voting.get("yes", 0) > voting.get("no", 0) else "rejected"
+            yes_votes = voting.get("yes") or 0
+            no_votes = voting.get("no") or 0
+            return "adopted" if yes_votes > no_votes else "rejected"
         return "unknown"
 
     def _build_agenda_timesteps(self, tree: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -425,12 +427,17 @@ def main():
         action="store_true",
         help="Pretty-print JSON output"
     )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        help="Root directory for parsed HTML data (default: data/documents/html)"
+    )
 
     args = parser.parse_args()
 
     # Build index
     print(f"Building document index...")
-    index = UNDocumentIndex()
+    index = UNDocumentIndex(args.data_root) if args.data_root else UNDocumentIndex()
     print(f"Indexed {len(index.documents)} documents\n")
 
     # Build trajectory

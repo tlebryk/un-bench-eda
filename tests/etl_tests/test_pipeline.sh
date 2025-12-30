@@ -17,15 +17,15 @@ mkdir -p test_data/raw/xml test_data/parsed/metadata test_data/documents/pdfs
 
 echo
 echo "=== STEP 1: Fetch metadata (Session 78 resolutions) ==="
-uv run fetch_metadata.py 78 --base-dir test_data --types resolutions
+uv run -m etl.fetch_download.fetch_metadata 78 --base-dir test_data --types resolutions
 
 echo
 echo "=== STEP 2: Parse XML to JSON ==="
-uv run parse_metadata.py test_data/raw/xml/session_78_resolutions.xml
+uv run -m etl.parsing.parse_metadata test_data/raw/xml/session_78_resolutions.xml
 
 echo
 echo "=== STEP 3: Download first 3 English PDFs ==="
-uv run download_pdfs.py test_data/parsed/metadata/session_78_resolutions.json --max-docs 3
+uv run -m etl.fetch_download.download_pdfs test_data/parsed/metadata/session_78_resolutions.json --max-docs 3
 echo
 echo "================================"
 echo "Pipeline Test Complete!"

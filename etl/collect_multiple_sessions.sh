@@ -30,7 +30,7 @@ fi
 echo "=== Phase 1: Fetching Metadata ==="
 for session in $SESSIONS; do
     echo "Fetching session $session..."
-    python fetch_metadata.py $session
+    uv run -m etl.fetch_download.fetch_metadata $session
     echo
 done
 
@@ -41,7 +41,7 @@ echo "Found $xml_count XML files to parse"
 for xml in data/raw/xml/*.xml; do
     filename=$(basename "$xml")
     echo "Parsing $filename..."
-    python parse_metadata.py "$xml"
+    uv run -m etl.parsing.parse_metadata "$xml"
 done
 echo
 
@@ -65,7 +65,7 @@ for json in data/parsed/metadata/*.json; do
     if [ "$DRY_RUN" = "true" ]; then
         echo "  [DRY RUN] Would download from $filename"
     else
-        python download_pdfs.py "$json"
+        uv run -m etl.fetch_download.download_pdfs "$json"
     fi
     echo
 done
