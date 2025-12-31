@@ -270,4 +270,68 @@ data/
 - `ENGINEERING_NOTEBOOK.md` - Implementation notes and known issues
 
 # UI
+
+## Local Development
+
+### Option 1: Full Stack with Docker Compose (Recommended)
+```bash
+# Start everything (databases + UI)
+docker-compose up
+
+# Or run in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f ui
+
+# Stop everything
+docker-compose down
+```
+Access at http://localhost:8000
+
+### Option 2: Databases Only + Local UI
+```bash
+# Start just databases
+docker-compose up postgres postgres_dev -d
+
+# Run UI with uv (hot reload for development)
 uv run uvicorn ui.app:app --reload
+```
+Access at http://localhost:8000
+
+### Option 3: Individual Services
+```bash
+# Just UI (auto-starts postgres via depends_on)
+docker-compose up ui
+
+# Just production database
+docker-compose up postgres
+
+# Just dev database
+docker-compose up postgres_dev
+```
+
+## Deployment (Render + Supabase)
+
+### Setup
+1. **Supabase**: Create project, get connection string, run `DATABASE_URL="postgresql://..." uv run -m db.setup_db`
+2. **Render**: New Web Service, Runtime=**Docker**, set env vars:
+   - `DATABASE_URL` (from Supabase)
+   - `OPENAI_API_KEY`
+   - `ENABLE_AUTH=true`
+   - `SHARED_PASSWORD=<your-password>`
+3. **GitHub Actions**: Add `RENDER_DEPLOY_HOOK_URL` secret (from Render Settings → Deploy Hook)
+
+### Environment Variables
+- **Local**: `ENABLE_AUTH=false` (no password gate)
+- **Production**: `ENABLE_AUTH=true` + `SHARED_PASSWORD` (HTTP Basic Auth)
+
+### Known Limitations
+- **PDF links**: Currently expect local paths. Metadata may contain UN Digital Library URLs. Future: upload to Supabase Storage or S3.
+- **Free tier**: Render sleeps after 15min inactivity (~30s wake-up). Upgrade to Starter ($7/mo) for always-on.
+
+### Files
+- `Dockerfile` - Multi-stage build using uv for Render
+- `pyproject.toml` & `uv.lock` - Python dependencies (managed by uv)
+- `.env.example` - Environment variable template
+- `.github/workflows/deploy.yml` - CI/CD pipeline

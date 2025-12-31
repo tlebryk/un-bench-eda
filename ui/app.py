@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Set, Optional
+from typing import Any, Dict, List, Tuple, Set, Optional, Annotated
 import re
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -81,6 +83,47 @@ SAMPLE_QUERIES = [
 ]
 
 app = FastAPI(title="UN Documents SQL UI", description="Text-heavy SQL workbench for the UN database")
+
+# Authentication setup (feature flag controlled)
+ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'false').lower() == 'true'
+SHARED_PASSWORD = os.getenv('SHARED_PASSWORD', '')
+
+if ENABLE_AUTH and not SHARED_PASSWORD:
+    logger.warning("⚠️  ENABLE_AUTH is true but SHARED_PASSWORD is not set!")
+
+security = HTTPBasic(auto_error=False)  # Don't auto-error, let us handle it
+
+
+def check_auth(credentials: Annotated[Optional[HTTPBasicCredentials], Depends(security)] = None):
+    """Simple shared password authentication via HTTP Basic Auth.
+
+    Username is ignored - any username with the correct password works.
+    This is suitable for ~10 internal users with a shared password.
+    """
+    if not ENABLE_AUTH:
+        return True
+
+    # If auth is enabled but no credentials provided, raise 401
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    # Check password (username is ignored - any username works)
+    correct_password = secrets.compare_digest(
+        credentials.password,
+        SHARED_PASSWORD
+    )
+
+    if not correct_password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
 
 
 def format_value(value: Any) -> Dict[str, Any]:
@@ -276,7 +319,7 @@ def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
 def home(request: Request):
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
     return templates.TemplateResponse(
@@ -293,7 +336,7 @@ def home(request: Request):
     )
 
 
-@app.post("/", response_class=HTMLResponse)
+@app.post("/", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
 def run_query(request: Request, sql_query: str = Form(...)):
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
     sql_query = sql_query.strip()
@@ -348,7 +391,7 @@ def run_query(request: Request, sql_query: str = Form(...)):
         )
 
 
-@app.post("/api/query")
+@app.post("/api/query", dependencies=[Depends(check_auth)])
 def api_query(sql_query: str = Form(...)):
     """Programmatic access point for automation."""
     sql_query = sql_query.strip()
@@ -379,7 +422,7 @@ def api_query(sql_query: str = Form(...)):
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
-@app.post("/api/text-to-sql")
+@app.post("/api/text-to-sql", dependencies=[Depends(check_auth)])
 def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL, optionally execute it."""
     if not natural_language_query:
@@ -436,7 +479,7 @@ def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Fo
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/text-to-sql", response_class=HTMLResponse)
+@app.post("/text-to-sql", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
 def text_to_sql_query(request: Request, natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL and optionally execute it."""
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
@@ -542,7 +585,7 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
         )
 
 
-@app.post("/api/summarize")
+@app.post("/api/summarize", dependencies=[Depends(check_auth)])
 def api_summarize(
     sql_query: str = Form(None),
     natural_language_query: str = Form(None),
