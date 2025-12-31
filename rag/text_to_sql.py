@@ -49,8 +49,9 @@ Tables:
    - symbol (text, unique, indexed) - e.g., "A/RES/78/220", "A/C.3/78/L.41"
    - doc_type (text, indexed) - 'resolution', 'draft', 'meeting', 'committee_report', 'agenda'
    - session (integer, indexed) - e.g., 78
-   - title (text)
+   - title (text) - document title
    - date (date)
+   - body_text (text) - full text content from PDFs (available for resolutions, drafts; use for text search and summarization)
    - doc_metadata (jsonb) - flexible metadata stored as JSON
    - created_at (timestamp)
 
@@ -124,7 +125,9 @@ Rules:
 8. For country/actor name matching, use ILIKE with patterns like '%country name%' to handle variations
 9. Use proper date comparisons and ordering
 10. When querying JSONB fields, use -> for objects and ->> for text values
-11. Avoid selecting the large doc_metadata JSON unless the user explicitly requests metadata details.
+11. For document text content, use the 'body_text' column (contains full PDF text for resolutions/drafts)
+12. For meeting statements, query the 'utterances' table which has a 'text' column
+13. Avoid selecting the large doc_metadata or body_text fields unless specifically requested (use title for previews)
 
 The database contains UN General Assembly documents, votes, actors (countries), and meeting utterances."""
 

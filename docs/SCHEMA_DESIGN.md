@@ -1,5 +1,12 @@
 # Database Schema Design Document
 
+**STATUS:** This is a design document with aspirational features. For the **actual implemented schema**, see `db/models.py` or `docs/README_DATABASE.md`.
+
+**Implemented:** documents, actors, votes, document_relationships, utterances, utterance_documents
+**Not Yet Implemented:** body_text_vector, sponsorships, agenda_items, committee_report_items, files
+
+---
+
 ## Design Principles
 
 1. **Normalize relationships, keep text flexible** - Use JSONB for metadata that varies by doc type

@@ -18,6 +18,7 @@ class Document(Base):
     session = Column(Integer, index=True)                              # e.g., 78
     title = Column(Text)
     date = Column(Date)
+    body_text = Column(Text)  # Full text of document (from PDF parsing - resolutions, drafts, etc.)
     doc_metadata = Column(JSONB)  # Full JSON for flexibility (renamed to avoid SQLAlchemy reserved word)
     created_at = Column(DateTime, default=datetime.utcnow)
 

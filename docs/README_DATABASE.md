@@ -178,7 +178,9 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 | session | integer | Session number (e.g., 78) |
 | title | text | Document title |
 | date | date | Document date |
-| metadata | jsonb | Full JSON for flexibility |
+| body_text | text | Full text from PDF (resolutions, drafts) |
+| doc_metadata | jsonb | Full JSON for flexibility |
+| created_at | timestamp | Creation timestamp |
 
 ### actors
 
@@ -187,6 +189,7 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 | id | integer | Primary key |
 | name | string | Country or organization name |
 | actor_type | string | country, observer, un_official |
+| created_at | timestamp | Creation timestamp |
 
 ### votes
 
@@ -197,6 +200,7 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 | actor_id | integer | Foreign key to actors |
 | vote_type | string | in_favour, against, abstaining |
 | vote_context | string | plenary, committee |
+| created_at | timestamp | Creation timestamp |
 
 ### document_relationships
 
@@ -206,6 +210,39 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 | source_id | integer | Source document (e.g., draft) |
 | target_id | integer | Target document (e.g., resolution) |
 | relationship_type | string | draft_of, committee_report_for, etc. |
+| rel_metadata | jsonb | Additional relationship metadata |
+| created_at | timestamp | Creation timestamp |
+
+### utterances
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| meeting_id | integer | Foreign key to documents (meeting) |
+| section_id | string | Section identifier within meeting |
+| agenda_item_number | string | Agenda item being discussed |
+| speaker_actor_id | integer | Foreign key to actors (nullable) |
+| speaker_name | string | Speaker name parsed from PDF |
+| speaker_role | string | Role (e.g., "President", "delegate") |
+| speaker_raw | text | Original speaker string from PDF |
+| speaker_affiliation | string | Country or organization |
+| text | text | Full utterance text |
+| word_count | integer | Word count of utterance |
+| position_in_meeting | integer | Order within meeting |
+| position_in_section | integer | Order within section |
+| utterance_metadata | jsonb | Additional metadata |
+| created_at | timestamp | Creation timestamp |
+
+### utterance_documents
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| utterance_id | integer | Foreign key to utterances |
+| document_id | integer | Foreign key to documents |
+| reference_type | string | Type of reference (mentioned, voting_on, etc.) |
+| context | text | Context where document was mentioned |
+| created_at | timestamp | Creation timestamp |
 
 ---
 

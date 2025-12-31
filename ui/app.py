@@ -18,20 +18,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.config import engine, get_session, get_dev_engine, is_supabase
+from db.config import engine, get_session, is_supabase, USE_DEV_DB
 from db.models import Document
 from rag.text_to_sql import generate_sql
 from rag.rag_summarize import summarize_results
-
-# Check if we should use dev database
-USE_DEV_DB = os.getenv('USE_DEV_DB', 'false').lower() == 'true'
-if USE_DEV_DB:
-    dev_engine = get_dev_engine()
-    if dev_engine:
-        engine = dev_engine
-        print("🔧 Using development database")
-    else:
-        print("⚠️  USE_DEV_DB=true but DEV_DATABASE_URL not set, using production database")
 
 # Set up logging
 LOG_DIR = Path(__file__).parent.parent / "logs"

@@ -36,6 +36,81 @@ class ResolutionLoader(BaseLoader):
 
         self.print_stats()
 
+    def _load_pdf_text(self, symbol: str) -> str | None:
+        """
+        Load body text from corresponding PDF-parsed JSON file.
+
+        Handles multiple PDF parsing formats:
+        - Old format: 'draft_text' field
+        - New format: 'raw_text.full_text' or combined 'text_segments'
+
+        Also handles combined PDFs with naming variants:
+        - A/RES/78/80[A] → tries A_RES_78_80[A].json, A_RES_78_80_A.json, A_RES_78_80_A-B.json
+
+        Args:
+            symbol: Document symbol (e.g., 'A/RES/78/1')
+
+        Returns:
+            Body text string or None if not found
+        """
+        pdf_dir = self.data_root / "parsed" / "pdfs" / "resolutions"
+
+        # Try multiple filename patterns
+        # Pattern 1: Direct conversion (A/RES/78/1 -> A_RES_78_1.json)
+        filename_attempts = [symbol.replace('/', '_') + '.json']
+
+        # Pattern 2: Handle [A]/[B] brackets (A/RES/78/80[A] -> A_RES_78_80_A.json)
+        if '[' in symbol:
+            base_symbol = symbol.replace('[', '_').replace(']', '')
+            filename_attempts.append(base_symbol.replace('/', '_') + '.json')
+
+            # Pattern 3: Combined A-B format (A/RES/78/80[A] -> A_RES_78_80_A-B.json)
+            if '[A]' in symbol:
+                combined = symbol.replace('[A]', '_A-B')
+                filename_attempts.append(combined.replace('/', '_') + '.json')
+            elif '[B]' in symbol:
+                combined = symbol.replace('[B]', '_A-B')
+                filename_attempts.append(combined.replace('/', '_') + '.json')
+
+        # Try each filename pattern
+        pdf_path = None
+        for filename in filename_attempts:
+            candidate_path = pdf_dir / filename
+            if candidate_path.exists():
+                pdf_path = candidate_path
+                break
+
+        if not pdf_path:
+            return None
+
+        try:
+            pdf_data = self.load_json(pdf_path)
+            if not pdf_data:
+                return None
+
+            # Try old format: draft_text field
+            if 'draft_text' in pdf_data:
+                return pdf_data['draft_text']
+
+            # Try new format: raw_text.full_text
+            if 'raw_text' in pdf_data and isinstance(pdf_data['raw_text'], dict):
+                full_text = pdf_data['raw_text'].get('full_text')
+                if full_text:
+                    return full_text
+
+            # Fallback: combine text_segments (preamble + operative)
+            if 'text_segments' in pdf_data and isinstance(pdf_data['text_segments'], dict):
+                segments = pdf_data['text_segments']
+                preamble = segments.get('preamble', '')
+                operative = segments.get('operative', '')
+                if preamble or operative:
+                    return f"{preamble}\n\n{operative}".strip()
+
+        except Exception as e:
+            print(f"  Warning: Could not load PDF text from {pdf_path.name}: {e}")
+
+        return None
+
     def load_resolution(self, json_path: Path):
         """Load a single resolution"""
         data = self.load_json(json_path)
@@ -52,6 +127,9 @@ class ResolutionLoader(BaseLoader):
 
         symbol = self.normalize_symbol(symbol)
 
+        # Try to load PDF text
+        body_text = self._load_pdf_text(symbol)
+
         # Create document
         doc = Document(
             symbol=symbol,
@@ -59,6 +137,7 @@ class ResolutionLoader(BaseLoader):
             session=self.extract_session(symbol),
             title=metadata.get("title"),
             date=self.parse_date(metadata.get("date")),
+            body_text=body_text,
             doc_metadata=data  # Store full JSON
         )
 
