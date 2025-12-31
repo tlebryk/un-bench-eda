@@ -255,3 +255,19 @@ Feature requests:
 12/30/25;
 
 Supabase kinda working, tried to load files but can't read yet.
+
+## 12/31/2025
+
+**Schema & RAG Pipeline Fix**
+
+Fixed critical gap where resolution body text wasn't being stored in database:
+- **Added** `body_text` column to `documents` table (db/models.py:21)
+- **Updated** ETL loader to merge PDF text with HTML metadata (etl/load_resolutions.py:39-110)
+  - Handles both old (`draft_text`) and new (`raw_text`/`text_segments`) PDF formats
+  - Handles combined symbols like `A/RES/78/80[A]` → `A_RES_78_80_A-B.json`
+- **Updated** text-to-SQL schema description to include `body_text` (rag/text_to_sql.py:54)
+- **Updated** RAG summarization to prioritize: `body_text` → `text` (utterances) → `doc_metadata` → `title` (rag/rag_summarize.py:47-118)
+
+Coverage: 336/336 resolutions (100%) now have full PDF text available for search and summarization.
+
+Migration: `ALTER TABLE documents ADD COLUMN body_text TEXT;` then reload with `uv run -m etl.run_etl --resolutions-only`

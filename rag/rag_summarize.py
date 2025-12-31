@@ -47,34 +47,55 @@ def get_client():
 def extract_text_fields(query_results: Dict[str, Any]) -> List[str]:
     """
     Extract text content from query results for summarization.
-    
-    Prioritizes:
-    1. 'text' column (for utterances)
-    2. 'doc_metadata' JSONB field with 'text' key (for resolutions/documents)
-    3. 'title' column as fallback
-    
+
+    Handles multiple result formats and prioritizes text extraction:
+    1. 'body_text' column (for documents - resolutions/drafts from PDF parsing)
+    2. 'text' column (for utterances - meeting statements)
+    3. 'doc_metadata' JSONB field with 'text' key (legacy/fallback)
+    4. 'title' column as final fallback
+
+    Handles both:
+    - UI-formatted results: {"full": "value", "display": "...", "truncated": False}
+    - Raw database results: direct string/dict values
+
     Args:
         query_results: Result dictionary from execute_sql with 'columns' and 'rows'
-    
+
     Returns:
         List of text strings (limited to MAX_RESULTS_FOR_SUMMARIZATION)
     """
     if not query_results.get("rows"):
         return []
-    
+
     texts = []
     rows = query_results["rows"][:MAX_RESULTS_FOR_SUMMARIZATION]
-    
+
+    # Helper function to extract value from UI-formatted or raw results
+    def get_value(cell_data):
+        """Extract string value from either UI-formatted or raw cell data."""
+        if cell_data is None:
+            return None
+        # UI-formatted: {"full": "value", "display": "...", "truncated": False}
+        if isinstance(cell_data, dict) and "full" in cell_data:
+            return cell_data["full"]
+        # Raw string/value
+        return cell_data
+
     for row in rows:
         text_content = None
-        
-        # Priority 1: Direct 'text' column (for utterances)
-        if "text" in row:
-            text_content = row["text"].get("full", "")
-        
-        # Priority 2: 'doc_metadata' JSONB with 'text' key (for resolutions)
-        elif "doc_metadata" in row:
-            metadata_str = row["doc_metadata"].get("full", "")
+        title_fallback = None
+
+        # Priority 1: body_text column (documents with full PDF text)
+        if "body_text" in row:
+            text_content = get_value(row["body_text"])
+
+        # Priority 2: text column (utterances)
+        if not text_content and "text" in row:
+            text_content = get_value(row["text"])
+
+        # Priority 3: doc_metadata JSONB with 'text' key (legacy)
+        if not text_content and "doc_metadata" in row:
+            metadata_str = get_value(row["doc_metadata"])
             if metadata_str:
                 try:
                     metadata = json.loads(metadata_str)
@@ -82,10 +103,18 @@ def extract_text_fields(query_results: Dict[str, Any]) -> List[str]:
                         text_content = metadata["text"]
                 except (json.JSONDecodeError, TypeError):
                     pass
-        
+
+        # Save title for fallback (Priority 4)
+        if "title" in row:
+            title_fallback = get_value(row["title"])
+
+        # Use title as fallback if no text content found
+        if not text_content and title_fallback:
+            text_content = title_fallback
+
         if text_content and text_content.strip():
             texts.append(text_content.strip())
-    
+
     return texts
 
 
