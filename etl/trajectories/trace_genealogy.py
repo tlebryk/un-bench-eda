@@ -17,7 +17,9 @@ from collections import defaultdict
 
 
 # Default data locations
-DEFAULT_DATA_ROOT = Path(__file__).parent / "data"
+# Project root is 2 levels up from this file (etl/trajectories/)
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "data"
 DEFAULT_PARSED_HTML = DEFAULT_DATA_ROOT / "parsed" / "html"
 DEFAULT_PARSED_PDFS = DEFAULT_DATA_ROOT / "parsed" / "pdfs"
 

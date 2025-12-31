@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Genealogy for A/RES/78/169</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #f8f9fb;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 0.2rem;
+    }
+    #graph-wrapper {
+      position: relative;
+      background: #fff;
+      padding: 1rem;
+      border: 1px solid #d5d8dd;
+      border-radius: 8px;
+      overflow: auto;
+    }
+    #columns {
+      display: flex;
+      gap: 1rem;
+      min-height: 200px;
+    }
+    .column {
+      flex: 1;
+      min-width: 160px;
+    }
+    .column h2 {
+      font-size: 0.95rem;
+      margin: 0 0 0.5rem 0;
+      text-transform: uppercase;
+      color: #4a4d57;
+    }
+    .node-card {
+      border-radius: 6px;
+      border: 1px solid #d5d8dd;
+      padding: 0.6rem;
+      margin-bottom: 0.6rem;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    .node-card .symbol {
+      font-weight: bold;
+      font-size: 0.9rem;
+      display: block;
+    }
+    .node-card .title {
+      font-size: 0.8rem;
+      color: #444;
+      margin-top: 0.2rem;
+    }
+    .node-card .badge {
+      font-size: 0.7rem;
+      color: #666;
+      margin-top: 0.3rem;
+      display: inline-block;
+    }
+    svg#edges {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    path.edge {
+      stroke: #8aa1c1;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrowhead);
+      opacity: 0.85;
+    }
+    .legend {
+      margin-bottom: 0.75rem;
+    }
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      margin-right: 0.4rem;
+      border: 1px solid #d5d8dd;
+      color: #383c45;
+    }
+    .node-card.type-agenda { border-color: #4284f5; }
+    .node-card.type-draft { border-color: #34a853; }
+    .node-card.type-committee_report { border-color: #fbbc05; }
+    .node-card.type-resolution { border-color: #ea4335; }
+    .node-card.type-meeting { border-color: #8e24aa; }
+    .node-card.missing {
+      opacity: 0.6;
+      border-style: dashed;
+    }
+  </style>
+</head>
+<body>
+  <h1>Genealogy for A/RES/78/169</h1>
+  <div class="legend"><span class="legend-pill type-agenda">Agenda</span><span class="legend-pill type-draft">Draft</span><span class="legend-pill type-committee_report">Committee report</span><span class="legend-pill type-resolution">Resolution</span><span class="legend-pill type-meeting">Meeting</span></div>
+  <div id="graph-wrapper">
+    <div id="columns"></div>
+    <svg id="edges">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
+          <polygon points="0 0, 8 3.5, 0 7" fill="#8aa1c1" />
+        </marker>
+      </defs>
+    </svg>
+  </div>
+  <script>
+    const GRAPH_DATA = {"nodes": [{"id": "A/RES/78/169", "symbol": "A/RES/78/169", "doc_type": "resolution", "label": "A/RES/78/169", "title": "Natural plant fibres and sustainable development : resolution / adopted by th...", "found": true, "extra": {}}, {"id": "A/78/251|23|B", "symbol": "A/78/251", "doc_type": "agenda", "label": "A/78/251", "title": "Natural plant fibres and sustainable development. NATURAL FIBRES", "found": true, "extra": {"item_number": 23, "sub_item": "b"}}, {"id": "A/C.2/78/L.32/REV.1", "symbol": "A/C.2/78/L.32/Rev.1", "doc_type": "draft", "label": "A/C.2/78/L.32/Rev.1", "title": "A/C.2/78/L.32/Rev.1", "found": true, "extra": {}}, {"id": "A/78/466/ADD.2", "symbol": "A/78/466/Add.2", "doc_type": "committee_report", "label": "A/78/466/Add.2", "title": "A/78/466/Add.2", "found": false, "extra": {}}, {"id": "A/78/PV.49", "symbol": "A/78/PV.49", "doc_type": "meeting", "label": "A/78/PV.49", "title": "General Assembly official records, 78th session : 49th plenary meeting, Tuesd...", "found": true, "extra": {}}], "edges": [{"source": "A/78/251|23|B", "target": "A/RES/78/169", "relation": "resolution"}, {"source": "A/C.2/78/L.32/REV.1", "target": "A/RES/78/169", "relation": "resolution"}, {"source": "A/78/466/ADD.2", "target": "A/RES/78/169", "relation": "resolution"}, {"source": "A/78/PV.49", "target": "A/RES/78/169", "relation": "resolution"}], "meta": {"mode": "backwards", "root_symbol": "A/RES/78/169"}};
+    const TYPE_ORDER = ["agenda", "draft", "committee_report", "resolution", "meeting"];
+    const GRAPH_DOC_TYPE_LABELS = {"agenda": "Agenda", "draft": "Draft", "committee_report": "Committee report", "resolution": "Resolution", "meeting": "Meeting"};
+
+    function sanitizeId(value) {
+      return value ? value.replace(/[^0-9a-zA-Z_-]+/g, '_') : '';
+    }
+
+    function renderGraph() {
+      const container = document.getElementById('columns');
+      container.innerHTML = '';
+      const availableTypes = Array.from(new Set([
+        ...TYPE_ORDER,
+        ...GRAPH_DATA.nodes.map(n => n.doc_type)
+      ]));
+
+      availableTypes.forEach(type => {
+        const nodes = GRAPH_DATA.nodes.filter(n => n.doc_type === type);
+        if (!nodes.length) return;
+        const column = document.createElement('div');
+        column.className = 'column';
+        const heading = document.createElement('h2');
+        heading.textContent = (GRAPH_DOC_TYPE_LABELS[type] || type).toUpperCase();
+        column.appendChild(heading);
+
+        nodes.forEach(node => {
+          const card = document.createElement('div');
+          const safeId = sanitizeId(node.id);
+          card.id = `node-${safeId}`;
+          card.className = `node-card type-${type}${node.found ? '' : ' missing'}`;
+          card.dataset.nodeId = node.id;
+          const symbol = document.createElement('span');
+          symbol.className = 'symbol';
+          symbol.textContent = node.symbol;
+          const title = document.createElement('span');
+          title.className = 'title';
+          title.textContent = node.title || '';
+          card.appendChild(symbol);
+          card.appendChild(title);
+
+          if (node.extra && (node.extra.item_number || node.extra.sub_item)) {
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            const itemLabel = `${node.extra.item_number || ''}${node.extra.sub_item || ''}`.trim();
+            badge.textContent = itemLabel ? `Item ${itemLabel}` : '';
+            card.appendChild(badge);
+          }
+
+          column.appendChild(card);
+        });
+
+        container.appendChild(column);
+      });
+
+      requestAnimationFrame(drawEdges);
+    }
+
+    function drawEdges() {
+      const wrapper = document.getElementById('graph-wrapper');
+      const svg = document.getElementById('edges');
+      const rect = wrapper.getBoundingClientRect();
+      svg.setAttribute('width', rect.width);
+      svg.setAttribute('height', rect.height);
+      const defs = svg.querySelector('defs');
+      const defsMarkup = defs ? defs.outerHTML : '';
+      svg.innerHTML = defsMarkup;
+
+      GRAPH_DATA.edges.forEach(edge => {
+        const srcEl = document.getElementById(`node-${sanitizeId(edge.source)}`);
+        const tgtEl = document.getElementById(`node-${sanitizeId(edge.target)}`);
+        if (!srcEl || !tgtEl) return;
+        const srcRect = srcEl.getBoundingClientRect();
+        const tgtRect = tgtEl.getBoundingClientRect();
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const x1 = srcRect.right - wrapperRect.left;
+        const y1 = srcRect.top + srcRect.height / 2 - wrapperRect.top;
+        const x2 = tgtRect.left - wrapperRect.left;
+        const y2 = tgtRect.top + tgtRect.height / 2 - wrapperRect.top;
+        const controlOffset = Math.max(40, (x2 - x1) / 2);
+        const d = `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('class', 'edge');
+        svg.appendChild(path);
+      });
+    }
+
+    window.addEventListener('load', () => {
+      renderGraph();
+      window.addEventListener('resize', () => requestAnimationFrame(drawEdges));
+    });
+  </script>
+</body>
+</html>

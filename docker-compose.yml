@@ -1,0 +1,65 @@
+services:
+  # Production PostgreSQL database
+  postgres:
+    image: postgres:16
+    container_name: un_documents_db
+    environment:
+      POSTGRES_DB: un_documents
+      POSTGRES_USER: un_user
+      POSTGRES_PASSWORD: un_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U un_user -d un_documents"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Development PostgreSQL database
+  postgres_dev:
+    image: postgres:16
+    container_name: un_documents_db_dev
+    environment:
+      POSTGRES_DB: un_documents_dev
+      POSTGRES_USER: un_user
+      POSTGRES_PASSWORD: un_password
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U un_user -d un_documents_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI UI application
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: un_documents_ui
+    ports:
+      - "8000:8000"
+    environment:
+      # Connect to postgres service (not localhost - we're in Docker network)
+      # Priority: Host .env > Local Docker Postgres
+      DATABASE_URL: ${DATABASE_URL:-postgresql://un_user:un_password@postgres:5432/un_documents}
+      # Optional: Use dev database instead
+      # DATABASE_URL: postgresql://un_user:un_password@postgres_dev:5432/un_documents_dev
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ENABLE_AUTH: ${ENABLE_AUTH:-false}
+      SHARED_PASSWORD: ${SHARED_PASSWORD:-}
+    volumes:
+      - ./logs:/app/logs
+      - ./rag/logs:/app/rag/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  postgres_data_dev:

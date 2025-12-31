@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pdfplumber
-from pdf_utils import remove_footers_headers, collapse
+from .pdf_utils import remove_footers_headers, collapse
 
 
 DOC_PATTERN = re.compile(r'\b[A-Z]/[\dA-Z]+(?:/[A-Z0-9.\-]+)+\b')
@@ -256,7 +256,7 @@ def parse_draft_resolution_item(text: str, start_pos: int) -> Optional[Dict[str,
     
     # Extract vote lists if present (using the same function from meeting parser)
     # But first, we need to handle committee report format which may have different end markers
-    from parse_meeting_pdf import _extract_vote_lists, _parse_state_list
+    from .parse_meeting_pdf import _extract_vote_lists, _parse_state_list
     
     # In committee reports, vote lists might end with paragraph numbers or "Before the vote"
     # Let's extract vote lists manually with committee report-specific end markers
@@ -449,6 +449,60 @@ def parse_committee_report_file(file_path: str) -> Dict[str, Any]:
     }
 
 
+def parse_committee_report_files(input_dir: Path, output_dir: Path, max_files: Optional[int] = None):
+    """
+    Parse all PDF files in a directory.
+    
+    Args:
+        input_dir: Directory containing PDF files
+        output_dir: Directory to save JSON files
+        max_files: Maximum number of files to process (None = all)
+    """
+    pdf_files = list(input_dir.glob('*.pdf'))
+    
+    if max_files:
+        pdf_files = pdf_files[:max_files]
+    
+    print(f"Found {len(pdf_files)} PDF files to parse in {input_dir}")
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    parsed = 0
+    failed = 0
+    
+    for pdf_file in pdf_files:
+        print(f"\nParsing: {pdf_file.name}")
+        
+        try:
+            data = parse_committee_report_file(str(pdf_file))
+            
+            output_filename = pdf_file.stem + '.json'
+            output_path = output_dir / output_filename
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            print(f"  ✓ Saved: {output_filename}")
+            metadata = data.get('metadata', {})
+            stats = data.get('stats', {})
+            print(f"    Symbol: {metadata.get('symbol', 'N/A')}")
+            print(f"    Items: {stats.get('item_count', 'N/A')}")
+
+            parsed += 1
+            
+        except Exception as e:
+            print(f"  ✗ Error parsing {pdf_file.name}: {e}")
+            failed += 1
+    
+    print(f"\n" + "="*60)
+    print(f"SUMMARY")
+    print(f"="*60)
+    print(f"Total files: {len(pdf_files)}")
+    print(f"Parsed: {parsed}")
+    print(f"Failed: {failed}")
+    print(f"Output directory: {output_dir.absolute()}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Parse UN General Assembly committee report PDFs',
@@ -460,33 +514,69 @@ Extracts:
 - Items corresponding to draft resolutions
 - For each item: submission, sponsorship, adoption, voting details
 
-Example:
+Examples:
+  # Parse all PDF files in a directory
+  python3 parse_committee_report_pdf.py data/documents/pdfs/committee-reports
+
+  # Parse a single file
   python3 parse_committee_report_pdf.py data/documents/pdfs/committee-reports/A_78_481_Add.3.pdf
         """
     )
-    parser.add_argument('input_file', type=Path, help='Path to committee report PDF file')
+    parser.add_argument('input_path', type=Path, help='Path to committee report PDF file or directory')
     parser.add_argument('-o', '--output', type=Path, default=None,
-                        help='Output JSON file path (default: <input_file>_parsed.json)')
+                        help='Output directory for JSON files (default: auto-detect from input path)')
+    parser.add_argument('--max-files', type=int, default=None,
+                        help='Maximum number of files to process (default: all)')
 
     args = parser.parse_args()
 
-    input_file = args.input_file
-    if args.output:
-        output_file = args.output
+    input_path = args.input_path
+
+    if not input_path.exists():
+        parser.error(f"Path not found: {input_path}")
+
+    if input_path.is_file():
+        # Single file mode
+        if args.output:
+            if args.output.suffix:
+                output_file = args.output
+            else:
+                output_file = args.output / f"{input_path.stem}.json"
+        else:
+            output_file = input_path.parent / f"{input_path.stem}.json"
+        
+        result = parse_committee_report_file(str(input_path))
+        
+        output_path_obj = Path(output_file)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path_obj, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        print(f"✓ Parsed committee report saved to {output_path_obj}")
+        print(f"Items: {result['stats']['item_count']}, "
+              f"Items with votes: {result['stats']['items_with_votes']}")
+
     else:
-        input_path = Path(input_file)
-        output_file = input_path.parent / f"{input_path.stem}_parsed.json"
-
-    result = parse_committee_report_file(input_file)
-
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-
-    print(f"✓ Parsed committee report saved to {output_path}")
-    print(f"Items: {result['stats']['item_count']}, "
-          f"Items with votes: {result['stats']['items_with_votes']}")
+        # Directory mode
+        input_dir = input_path
+        
+        if args.output:
+            output_dir = args.output
+        else:
+            try:
+                parts = list(input_dir.parts)
+                documents_index = parts.index('documents')
+                parts[documents_index] = 'parsed'
+                output_dir = Path(*parts)
+            except ValueError:
+                output_dir = input_dir.parent / (input_dir.name + "_parsed")
+        
+        if args.max_files:
+            print(f"Limit: First {args.max_files} files")
+        print(f"Input: {input_dir}")
+        print(f"Output: {output_dir}")
+        
+        parse_committee_report_files(input_dir, output_dir, args.max_files)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,123 @@
+uv run visualize_trajectory.py viz/169.json                      
+================================================================================
+TRAJECTORY: A/RES/78/196
+================================================================================
+Title: Promotion of a democratic and equitable international order : resolution / adopted by the General Assembly
+Session: 78
+Committee: 3
+Agenda Item: 71b
+Final Outcome: ADOPTED
+Total Timesteps: 5
+
+
+────────────────────────────────────────────────────────────────────────────────
+T0: AGENDA ALLOCATION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 8 Sept. 2023
+Action Type: allocate_to_committee
+
+📊 STATE:
+  agenda_symbol: A/78/251
+  item_number: 71
+  sub_item: b
+  title: Human rights questions, including alternative approaches for improving the effective enjoyment of hu...
+
+⚡ ACTION:
+  Actor: General Assembly
+  Type: allocate_agenda_item
+
+👁️  OBSERVATION:
+  public: True
+  agenda_published: True
+
+────────────────────────────────────────────────────────────────────────────────
+T1: AGENDA ALLOCATION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 8 Sept. 2023
+Action Type: allocate_to_committee
+
+📊 STATE:
+  agenda_symbol: A/78/251
+  item_number: None
+  sub_item: None
+  title: 71b[31] DEMOCRACY
+
+⚡ ACTION:
+  Actor: General Assembly
+  Type: allocate_agenda_item
+
+👁️  OBSERVATION:
+  public: True
+  agenda_published: True
+
+────────────────────────────────────────────────────────────────────────────────
+T2: DRAFT SUBMISSION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 30 Oct. 2023
+Action Type: submit_draft
+
+📊 STATE:
+  draft_symbol: A/C.3/78/L.32
+  distribution: None
+  language: None
+
+⚡ ACTION:
+  Primary Sponsor: Unknown
+
+👁️  OBSERVATION:
+  public: True
+  draft_symbol: A/C.3/78/L.32
+  draft_published: True
+  sponsor_count: 0
+
+────────────────────────────────────────────────────────────────────────────────
+T3: PLENARY DISCUSSION
+────────────────────────────────────────────────────────────────────────────────
+Date: 2023-12-19
+Action Type: statements
+
+📊 STATE:
+  meeting_symbol: A/78/PV.50
+  meeting_number: None
+
+⚡ ACTION:
+  Speakers (17 statements):
+    • The Acting President (372 words)
+    • The President (305 words)
+    • The President (315 words)
+    • The President (365 words)
+    • The President (312 words)
+    ... and 12 more speakers
+
+👁️  OBSERVATION:
+  public: True
+  statement_count: 17
+
+────────────────────────────────────────────────────────────────────────────────
+T4: PLENARY VOTE
+────────────────────────────────────────────────────────────────────────────────
+Date: 2023-12-19
+Action Type: recorded_vote
+
+📊 STATE:
+  resolution_symbol: A/RES/78/196
+  meeting_symbol: A/78/PV.50
+
+⚡ ACTION:
+
+  ✅ IN FAVOUR (91 countries):
+     Algeria, Angola, Antigua and Barbuda, Argentina, Azerbaijan, Bahamas, Bahrain, Bangladesh, Barbados, Belarus
+     ... and 81 more
+
+  ❌ AGAINST (54 countries):
+     Albania, Andorra, Australia, Austria, Belgium, Bosnia and Herzegovina, Bulgaria, Canada, Croatia, Cyprus
+     ... and 44 more
+
+  ⚪ ABSTAINING (6 countries):
+     Armenia, Chile, Costa Rica, Mexico, Peru, Uruguay
+
+👁️  OBSERVATION:
+  public: True
+  outcome: adopted
+  vote_tally: 91-54-6
+  resolution_symbol: A/RES/78/196

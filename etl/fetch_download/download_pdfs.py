@@ -145,6 +145,8 @@ def download_documents_from_metadata(json_file: str,
         json_parts = Path(json_file).parts
         if 'test_data' in json_parts:
             base_data_dir = Path('test_data')
+        elif 'dev_data' in json_parts:
+            base_data_dir = Path('dev_data')
         elif 'data' in json_parts:
             base_data_dir = Path('data')
         else:
@@ -273,6 +275,8 @@ Examples:
     json_parts = Path(json_file).parts
     if 'test_data' in json_parts:
         base_dir = 'test_data'
+    elif 'dev_data' in json_parts:
+        base_dir = 'dev_data'
     elif 'data' in json_parts:
         base_dir = 'data'
     else:

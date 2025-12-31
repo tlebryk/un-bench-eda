@@ -1,0 +1,5 @@
+## 
+- Use uv for package management. To run a script, use `uv run main.py`
+- Before starting anything, understand the project. Read the README.md.
+- Use argparse for scripting
+- place .md files in /docs directory

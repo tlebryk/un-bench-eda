@@ -1,0 +1,154 @@
+================================================================================
+TRAJECTORY: A/RES/78/220
+================================================================================
+Title: Situation of human rights in the Islamic Republic of Iran : resolution / adopted by the General Assembly
+Session: 78
+Committee: 3
+Agenda Item: 71c
+Final Outcome: ADOPTED
+Total Timesteps: 6
+
+
+────────────────────────────────────────────────────────────────────────────────
+T0: AGENDA ALLOCATION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 8 Sept. 2023
+Action Type: allocate_to_committee
+
+📊 STATE:
+  agenda_symbol: A/78/251
+  item_number: 71
+  sub_item: c
+  title: Human rights situations and reports of special rapporteurs and representatives. HUMAN RIGHTS--REPORT...
+
+⚡ ACTION:
+  Actor: General Assembly
+  Type: allocate_agenda_item
+
+👁️  OBSERVATION:
+  public: True
+  agenda_published: True
+
+────────────────────────────────────────────────────────────────────────────────
+T1: AGENDA ALLOCATION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 8 Sept. 2023
+Action Type: allocate_to_committee
+
+📊 STATE:
+  agenda_symbol: A/78/251
+  item_number: None
+  sub_item: None
+  title: 71c[6] HUMAN RIGHTS--IRAN (ISLAMIC REPUBLIC OF)
+
+⚡ ACTION:
+  Actor: General Assembly
+  Type: allocate_agenda_item
+
+👁️  OBSERVATION:
+  public: True
+  agenda_published: True
+
+────────────────────────────────────────────────────────────────────────────────
+T2: DRAFT SUBMISSION
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 1 Nov. 2023
+Action Type: submit_draft
+
+📊 STATE:
+  draft_symbol: A/C.3/78/L.41
+  distribution: None
+  language: None
+
+⚡ ACTION:
+  Primary Sponsor: Unknown
+
+👁️  OBSERVATION:
+  public: True
+  draft_symbol: A/C.3/78/L.41
+  draft_published: True
+  sponsor_count: 0
+
+────────────────────────────────────────────────────────────────────────────────
+T3: COMMITTEE VOTE
+────────────────────────────────────────────────────────────────────────────────
+Date: [New York] : UN, 30 Nov. 2023
+Action Type: recorded_vote
+
+📊 STATE:
+  draft_symbol: A/C.3/78/L.41
+  committee: None
+  rapporteur: Mr. Robert Alexander Poveda Brito
+
+⚡ ACTION:
+
+  ✅ IN FAVOUR (80 countries):
+     Albania, Andorra, Antigua and Barbuda, Argentina, Australia, Austria, Bahamas, Barbados, Belgium, Bosnia and Herzegovina
+     ... and 70 more
+
+  ❌ AGAINST (29 countries):
+     Algeria, Armenia, Belarus, Bolivia (Plurinational State of), Brunei Darussalam, Burkina Faso, Burundi, China, Cuba, Democratic People’s Republic of Korea
+     ... and 19 more
+
+  ⚪ ABSTAINING (65 countries):
+     Angola, Bahrain, Bangladesh, Belize, Benin, Bhutan, Botswana, Brazil, Cambodia, Cameroon
+     ... and 55 more
+
+👁️  OBSERVATION:
+  public: True
+  outcome: adopted
+  vote_tally: 80-29-65
+  committee_report_symbol: A/78/481/Add.3
+
+────────────────────────────────────────────────────────────────────────────────
+T4: PLENARY DISCUSSION
+────────────────────────────────────────────────────────────────────────────────
+Date: 2023-12-19
+Action Type: statements
+
+📊 STATE:
+  meeting_symbol: A/78/PV.50
+  meeting_number: None
+
+⚡ ACTION:
+  Speakers (17 statements):
+    • The Acting President (372 words)
+    • The President (305 words)
+    • The President (315 words)
+    • The President (365 words)
+    • The President (312 words)
+    ... and 12 more speakers
+
+👁️  OBSERVATION:
+  public: True
+  statement_count: 17
+
+────────────────────────────────────────────────────────────────────────────────
+T5: PLENARY VOTE
+────────────────────────────────────────────────────────────────────────────────
+Date: 2023-12-19
+Action Type: recorded_vote
+
+📊 STATE:
+  resolution_symbol: A/RES/78/220
+  meeting_symbol: A/78/PV.50
+
+⚡ ACTION:
+
+  ✅ IN FAVOUR (78 countries):
+     Albania, Andorra, Argentina, Australia, Austria, Bahamas, Barbados, Belgium, Bosnia and Herzegovina, Bulgaria
+     ... and 68 more
+
+  ❌ AGAINST (30 countries):
+     Algeria, Armenia, Belarus, Bolivia (Plurinational State of), Brunei Darussalam, Burkina Faso, Burundi, China, Cuba, Democratic People’s Republic of Korea
+     ... and 20 more
+
+  ⚪ ABSTAINING (68 countries):
+     Angola, Antigua and Barbuda, Bahrain, Bangladesh, Belize, Benin, Bhutan, Botswana, Brazil, Cambodia
+     ... and 58 more
+
+👁️  OBSERVATION:
+  public: True
+  outcome: adopted
+  vote_tally: 78-30-68
+  resolution_symbol: A/RES/78/220
