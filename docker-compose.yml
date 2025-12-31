@@ -45,12 +45,16 @@ services:
       - "8000:8000"
     environment:
       # Connect to postgres service (not localhost - we're in Docker network)
-      DATABASE_URL: postgresql://un_user:un_password@postgres:5432/un_documents
+      # Priority: Host .env > Local Docker Postgres
+      DATABASE_URL: ${DATABASE_URL:-postgresql://un_user:un_password@postgres:5432/un_documents}
       # Optional: Use dev database instead
       # DATABASE_URL: postgresql://un_user:un_password@postgres_dev:5432/un_documents_dev
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ENABLE_AUTH: ${ENABLE_AUTH:-false}
       SHARED_PASSWORD: ${SHARED_PASSWORD:-}
+    volumes:
+      - ./logs:/app/logs
+      - ./rag/logs:/app/rag/logs
     depends_on:
       postgres:
         condition: service_healthy

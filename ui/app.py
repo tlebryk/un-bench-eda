@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.config import engine, get_session, get_dev_engine
+from db.config import engine, get_session, get_dev_engine, is_supabase
 from db.models import Document
 from rag.text_to_sql import generate_sql
 from rag.rag_summarize import summarize_results
@@ -36,7 +36,7 @@ if USE_DEV_DB:
 # Set up logging
 LOG_DIR = Path(__file__).parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "text_to_sql.log"
+LOG_FILE = LOG_DIR / "app.log"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +47,14 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Log connection status on startup
+if is_supabase and not USE_DEV_DB:
+    logger.info("🚀 Starting UI with PRODUCTION database (Supabase)")
+elif USE_DEV_DB:
+    logger.info("🚀 Starting UI with DEVELOPMENT database")
+else:
+    logger.info("🚀 Starting UI with LOCAL database")
 
 APP_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))

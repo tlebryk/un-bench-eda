@@ -252,3 +252,6 @@ Feature requests:
    Convert HKS Brand Guidelines to a png/jpg so we agent can view it and align the content. 
 
 
+12/30/25;
+
+Supabase kinda working, tried to load files but can't read yet.

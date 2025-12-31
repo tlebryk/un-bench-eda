@@ -17,9 +17,12 @@ class ResolutionLoader(BaseLoader):
             return
 
         json_files = list(res_dir.glob("*.json"))
-        print(f"Found {len(json_files)} resolution files")
+        total = len(json_files)
+        print(f"Found {total} resolution files")
 
-        for json_file in json_files:
+        for idx, json_file in enumerate(json_files, 1):
+            if idx % 10 == 0 or idx == 1:  # Progress every 10 files
+                print(f"  Processing resolution {idx}/{total}...")
             self.load_resolution(json_file)
 
         # Commit all changes
