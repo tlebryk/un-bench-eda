@@ -50,7 +50,7 @@ services:
       # Optional: Use dev database instead
       # DATABASE_URL: postgresql://un_user:un_password@postgres_dev:5432/un_documents_dev
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ENABLE_AUTH: ${ENABLE_AUTH:-false}
+      ENABLE_AUTH: ${ENABLE_AUTH:-true}
       SHARED_PASSWORD: ${SHARED_PASSWORD:-}
     volumes:
       - ./logs:/app/logs

@@ -6,14 +6,15 @@ import json
 import logging
 import os
 import secrets
+import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Set, Optional, Annotated
+from typing import Any, Dict, List, Tuple, Set, Optional
 import re
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, Request, HTTPException, status, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -83,45 +84,67 @@ SAMPLE_QUERIES = [
 app = FastAPI(title="UN Documents SQL UI", description="Text-heavy SQL workbench for the UN database")
 
 # Authentication setup (feature flag controlled)
-ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'false').lower() == 'true'
+ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'
 SHARED_PASSWORD = os.getenv('SHARED_PASSWORD', '')
+SESSION_COOKIE_NAME = "ui_session"
+SESSION_COOKIE_MAX_AGE = 12 * 60 * 60  # 12 hours
 
 if ENABLE_AUTH and not SHARED_PASSWORD:
-    logger.warning("⚠️  ENABLE_AUTH is true but SHARED_PASSWORD is not set!")
-
-security = HTTPBasic(auto_error=False)  # Don't auto-error, let us handle it
+    raise RuntimeError("ENABLE_AUTH is true but SHARED_PASSWORD is not set")
 
 
-def check_auth(credentials: Annotated[Optional[HTTPBasicCredentials], Depends(security)] = None):
-    """Simple shared password authentication via HTTP Basic Auth.
+def _session_token() -> Optional[str]:
+    password = SHARED_PASSWORD
+    if not password:
+        return None
+    payload = f"un-draft-ui::{password}"
+    return hashlib.sha256(payload.encode()).hexdigest()
 
-    Username is ignored - any username with the correct password works.
-    This is suitable for ~10 internal users with a shared password.
-    """
+
+SESSION_TOKEN = _session_token()
+
+
+def is_authenticated(request: Request) -> bool:
     if not ENABLE_AUTH:
         return True
+    expected = SESSION_TOKEN
+    if not expected:
+        return False
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        return False
+    return secrets.compare_digest(token, expected)
 
-    # If auth is enabled but no credentials provided, raise 401
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Basic"},
-        )
 
-    # Check password (username is ignored - any username works)
-    correct_password = secrets.compare_digest(
-        credentials.password,
-        SHARED_PASSWORD
+def require_auth(request: Request):
+    if not ENABLE_AUTH:
+        return True
+    if is_authenticated(request):
+        return True
+
+    path = request.url.path or "/"
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    login_url = f"/login?next={quote(path, safe='')}"
+    raise HTTPException(
+        status_code=status.HTTP_302_FOUND,
+        detail="Authentication required",
+        headers={"Location": login_url},
     )
 
-    if not correct_password:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return True
+
+def _safe_next_url(next_url: Optional[str]) -> str:
+    """Prevent open redirect by only allowing relative paths."""
+    if not next_url:
+        return "/"
+    parsed = urlparse(next_url)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    path = parsed.path or "/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    if not path.startswith("/"):
+        path = "/"
+    return f"{path}{query}"
 
 
 def format_value(value: Any) -> Dict[str, Any]:
@@ -317,7 +340,73 @@ def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    target = _safe_next_url(next)
+    if not ENABLE_AUTH or is_authenticated(request):
+        return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": None,
+            "next": target,
+        },
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(request: Request, password: str = Form(...), next: str = Form("/")):
+    target = _safe_next_url(next)
+    if not ENABLE_AUTH:
+        return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+
+    if not secrets.compare_digest(password, SHARED_PASSWORD):
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "Incorrect password",
+                "next": target,
+            },
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    token = SESSION_TOKEN
+    if not token:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Authentication not configured")
+    response = RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=SESSION_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+def _logout_response(next_value: str) -> RedirectResponse:
+    target = _safe_next_url(next_value)
+    response = RedirectResponse(
+        f"/login?next={quote(target, safe='')}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+
+@app.post("/logout")
+def logout_post(next: str = Form("/")):
+    return _logout_response(next)
+
+
+@app.get("/logout")
+def logout_get(next: str = "/"):
+    return _logout_response(next)
+
+
+@app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def home(request: Request):
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
     return templates.TemplateResponse(
@@ -334,7 +423,7 @@ def home(request: Request):
     )
 
 
-@app.post("/", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
+@app.post("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def run_query(request: Request, sql_query: str = Form(...)):
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
     sql_query = sql_query.strip()
@@ -389,7 +478,7 @@ def run_query(request: Request, sql_query: str = Form(...)):
         )
 
 
-@app.post("/api/query", dependencies=[Depends(check_auth)])
+@app.post("/api/query", dependencies=[Depends(require_auth)])
 def api_query(sql_query: str = Form(...)):
     """Programmatic access point for automation."""
     sql_query = sql_query.strip()
@@ -420,7 +509,7 @@ def api_query(sql_query: str = Form(...)):
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
-@app.post("/api/text-to-sql", dependencies=[Depends(check_auth)])
+@app.post("/api/text-to-sql", dependencies=[Depends(require_auth)])
 def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL, optionally execute it."""
     if not natural_language_query:
@@ -477,7 +566,7 @@ def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Fo
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/text-to-sql", response_class=HTMLResponse, dependencies=[Depends(check_auth)])
+@app.post("/text-to-sql", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def text_to_sql_query(request: Request, natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL and optionally execute it."""
     demo_mode = request.query_params.get("demo", "false").lower() == "true"
@@ -583,7 +672,7 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
         )
 
 
-@app.post("/api/summarize", dependencies=[Depends(check_auth)])
+@app.post("/api/summarize", dependencies=[Depends(require_auth)])
 def api_summarize(
     sql_query: str = Form(None),
     natural_language_query: str = Form(None),

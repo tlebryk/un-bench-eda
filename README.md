@@ -289,6 +289,8 @@ docker-compose down
 ```
 Access at http://localhost:8000
 
+The UI now prompts for a shared password at `/login`. Set `SHARED_PASSWORD` in your environment (Render dashboard, `.env`, etc.) and share the value out-of-band with collaborators who need access.
+
 ### Option 2: Databases Only + Local UI
 ```bash
 # Start just databases
@@ -323,8 +325,8 @@ docker-compose up postgres_dev
 3. **GitHub Actions**: Add `RENDER_DEPLOY_HOOK_URL` secret (from Render Settings → Deploy Hook)
 
 ### Environment Variables
-- **Local**: `ENABLE_AUTH=false` (no password gate)
-- **Production**: `ENABLE_AUTH=true` + `SHARED_PASSWORD` (HTTP Basic Auth)
+- **Default**: Password-protected login via `ENABLE_AUTH=true` + `SHARED_PASSWORD`
+- **Local override**: Set `ENABLE_AUTH=false` if you need to bypass the login locally
 
 ### Known Limitations
 - **PDF links**: Currently expect local paths. Metadata may contain UN Digital Library URLs. Future: upload to Supabase Storage or S3.
