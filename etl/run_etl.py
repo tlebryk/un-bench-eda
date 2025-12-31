@@ -28,6 +28,7 @@ from db.config import get_session, engine, get_dev_engine
 from db.utils import reset_database
 from etl.load_resolutions import ResolutionLoader
 from etl.load_meetings import MeetingLoader
+from etl.load_documents import DocumentLoader
 
 
 def main():
@@ -35,6 +36,7 @@ def main():
     parser.add_argument('--reset', action='store_true', help='Reset database before loading')
     parser.add_argument('--resolutions-only', action='store_true', help='Load only resolutions')
     parser.add_argument('--meetings-only', action='store_true', help='Load only meetings')
+    parser.add_argument('--documents-only', action='store_true', help='Load only drafts, committee reports, agenda items')
     parser.add_argument('--dev', action='store_true', help='Use development database and dev_data/')
     args = parser.parse_args()
 
@@ -66,14 +68,28 @@ def main():
     print(f"Data directory: {data_root}")
     print()
 
-    # Load resolutions unless meetings-only flag is set
-    if not args.meetings_only:
+    # Load resolutions unless meetings-only or documents-only flag is set
+    if not args.meetings_only and not args.documents_only:
         print("\n📊 Loading Resolutions...")
         res_loader = ResolutionLoader(session, data_root)
         res_loader.load_all()
 
-    # Load meetings unless resolutions-only flag is set
-    if not args.resolutions_only:
+    # Load other documents unless resolutions-only or meetings-only flag is set
+    if not args.resolutions_only and not args.meetings_only:
+        print("\n📊 Loading Drafts...")
+        draft_loader = DocumentLoader(session, data_root, 'draft')
+        draft_loader.load_all()
+
+        print("\n📊 Loading Committee Reports...")
+        committee_loader = DocumentLoader(session, data_root, 'committee_report')
+        committee_loader.load_all()
+
+        print("\n📊 Loading Agenda Items...")
+        agenda_loader = DocumentLoader(session, data_root, 'agenda_item')
+        agenda_loader.load_all()
+
+    # Load meetings unless resolutions-only or documents-only flag is set
+    if not args.resolutions_only and not args.documents_only:
         print("\n📊 Loading Meetings and Votes...")
         meeting_loader = MeetingLoader(session, data_root)
         meeting_loader.load_all()

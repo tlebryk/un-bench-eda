@@ -52,6 +52,26 @@ class MeetingLoader(BaseLoader):
 
         symbol = self.normalize_symbol(symbol)
 
+        # Extract body_text from preface + all utterances
+        body_text_parts = []
+
+        # Add preface if present
+        if data.get('preface'):
+            body_text_parts.append(data['preface'])
+
+        # Add all utterances
+        for section in data.get("sections", []):
+            for utterance in section.get("utterances", []):
+                speaker_line = f"\n{'=' * 80}\n"
+                if utterance.get('speaker_name'):
+                    speaker_line += utterance['speaker_name']
+                    if utterance.get('speaker_affiliation'):
+                        speaker_line += f" ({utterance['speaker_affiliation']})"
+                    speaker_line += ":\n\n"
+                body_text_parts.append(speaker_line + utterance.get('text', ''))
+
+        body_text = '\n\n'.join(body_text_parts) if body_text_parts else None
+
         # Check if meeting document already exists
         existing_doc = self.session.query(Document).filter_by(symbol=symbol).first()
 
@@ -63,6 +83,7 @@ class MeetingLoader(BaseLoader):
                 session=self.extract_session(symbol),
                 title=f"Plenary meeting {metadata.get('meeting_number', '')}",
                 date=self.parse_meeting_date(metadata.get("datetime")),
+                body_text=body_text,
                 doc_metadata=data  # Store full JSON
             )
 
@@ -80,6 +101,7 @@ class MeetingLoader(BaseLoader):
             doc.session = doc.session or self.extract_session(symbol)
             doc.title = f"Plenary meeting {metadata.get('meeting_number', '')}" or doc.title
             doc.date = self.parse_meeting_date(metadata.get("datetime")) or doc.date
+            doc.body_text = body_text
             doc.doc_metadata = data
             self.session.flush()
 

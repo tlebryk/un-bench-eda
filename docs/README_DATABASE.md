@@ -299,6 +299,42 @@ LIMIT 10;
 
 ## Common Tasks
 
+### Sync Local Database to Supabase (Recommended)
+
+**Much faster than running ETL over network!**
+
+```bash
+# 1. Ensure local database is up to date
+docker-compose up -d
+uv run -m etl.run_etl --reset  # (or just --resolutions-only if already loaded)
+
+# 2. Sync to Supabase (~1-2 minutes)
+./scripts/sync_to_supabase.sh
+
+# 3. Verify
+uv run -m scripts.verify_supabase
+```
+
+**What it does:**
+- Exports local PostgreSQL database to SQL dump
+- Imports dump to Supabase
+- Much faster than ETL (2 minutes vs 30+ minutes)
+
+**Manual method:**
+```bash
+# Export local database
+docker exec un_documents_db pg_dump -U un_user -d un_documents \
+    --clean --if-exists > /tmp/un_documents.sql
+
+# Import to Supabase (replace with your credentials)
+PGPASSWORD=your_password psql \
+    -h db.xyz.supabase.co \
+    -p 5432 \
+    -U postgres \
+    -d postgres \
+    -f /tmp/un_documents.sql
+```
+
 ### Reset Database
 
 To drop all tables and reload data:
