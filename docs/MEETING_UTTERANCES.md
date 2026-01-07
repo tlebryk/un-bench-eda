@@ -2,14 +2,18 @@
 
 ## Overview
 
-This document describes how meeting utterances (speeches/statements) are stored in the database and how to trace genealogy from any document identifier (resolution, draft, agenda item) to find all relevant comments in plenary meetings.
+This document describes how meeting utterances (speeches/statements) are stored in the database and how to trace genealogy from any document identifier (resolution, draft, agenda item) to find all relevant comments.
+
+This covers both:
+1. **Plenary Meetings** (`A/78/PV.*`) - Verbatim records of the General Assembly.
+2. **Committee Summary Records** (`A/C.*/78/SR.*`) - Summarized records of the Main Committees.
 
 ## Database Schema
 
 ### New Tables
 
 #### `utterances`
-Stores individual speech utterances from plenary meetings.
+Stores individual speech utterances from plenary meetings and committee summary records.
 
 **Key Fields:**
 - `meeting_id` - Links to the meeting document
@@ -17,7 +21,7 @@ Stores individual speech utterances from plenary meetings.
 - `agenda_item_number` - The agenda item number (e.g., "11", "20")
 - `speaker_name` - Parsed speaker name (e.g., "El-Sonni")
 - `speaker_affiliation` - Country or organization (e.g., "Libya")
-- `speaker_role` - Role (e.g., "The President", "delegate")
+- `speaker_role` - Role (e.g., "The President", "delegate", "Chair")
 - `text` - Full text of the utterance
 - `position_in_meeting` - Order within the entire meeting
 - `position_in_section` - Order within the agenda item section
@@ -34,8 +38,12 @@ Junction table linking utterances to documents they reference.
 
 ## Data Flow
 
-### 1. Parsing (parse_meeting_pdf.py)
-The PDF parser extracts:
+### 1. Parsing
+Two parsers handle different meeting formats:
+- `parse_meeting_pdf.py`: Handles Plenary Verbatim Records (PV).
+- `parse_committee_sr.py`: Handles Committee Summary Records (SR).
+
+The parsers extract:
 - Meeting metadata (symbol, date, session, etc.)
 - Sections organized by agenda items
 - Utterances with speaker information

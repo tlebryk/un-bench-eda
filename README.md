@@ -1,12 +1,79 @@
-# UN Document Scraper
+# UN Document Scraper & Deliberation Gym
 
-A modular scraper for collecting UN General Assembly documents and building version history chains for the IGO-Gym benchmark project.
+A complete pipeline for collecting UN General Assembly documents, building resolution trajectories, and training reinforcement learning agents on UN negotiation processes.
 
-This project provides a set of Python scripts to fetch, parse, and download UN documents from the UN Digital Library.
+**Components:**
+1. **ETL Pipeline:** Fetch, parse, and download UN documents from the UN Digital Library
+2. **Trajectory Builder:** Construct resolution genealogies and RL-ready trajectories
+3. **UN Deliberation Gym:** OpenAI Gym environment for modeling country voting behavior
+4. **Interactive Visualization:** Terminal and web UIs for exploring trajectories
 
 For the full research context, see [project.md](project.md).
 
+## Dependency Management
+
+This project uses **uv** with **dependency groups** to manage different components efficiently:
+
+- **Core dependencies** (always installed): App, RAG, DB, Gym
+- **ETL group**: PDF parsing (`pdfplumber`) - only needed for ETL operations
+- **Training group**: PyTorch (`torch`) - only needed for training scripts (~900MB)
+
+### Installation Options
+
+```bash
+# Core only (app, rag, db, gym - recommended for most work)
+make install
+# or: uv sync
+
+# Add ETL capabilities (PDF parsing)
+make install-etl
+# or: uv sync --group etl
+
+# Add training capabilities (PyTorch)
+make install-training
+# or: uv sync --group training
+
+# Everything
+make install-all
+# or: uv sync --group etl --group training
+
+# Full development setup
+make dev
+# or: uv sync --group dev --group etl --group training
+```
+
+**Why this approach?**
+- Single environment (no multiple venvs to manage)
+- Space efficient (torch only installed when needed)
+- Fast installs (core dependencies are lightweight)
+- Clear separation of concerns
+
+See `Makefile` for convenient commands, or use `make help` for all options.
+
 ## Quick Start
+
+### UN Deliberation Gym
+
+Try the interactive RL environment:
+
+```bash
+# Interactive mode (you choose actions)
+uv run python -m un_gym.cli.play --country France
+
+# Expert mode (watch historical behavior)
+uv run python -m un_gym.cli.play --country Germany --expert
+
+# Generate web visualization
+uv run python -m un_gym.cli.generate_web_viz \
+    --country France \
+    --output viz_france.html
+
+open viz_france.html
+```
+
+See **[docs/gym.md](docs/gym.md)** for full gym documentation.
+
+### ETL Pipeline
 
 The scraper uses a 3-stage pipeline:
 
@@ -132,7 +199,9 @@ The JSON graph output is the recommended starting point for the future gym backe
 
 ## Build and inspect RL trajectories
 
-Once you have genealogy coverage for a resolution, you can convert it into a MARL-ready trajectory JSON and review the resulting sequence of states/actions.
+Once you have genealogy coverage for a resolution, you can convert it into a MARL-ready trajectory JSON and use it with the UN Deliberation Gym.
+
+### Build trajectory
 
 ```bash
 # Build a trajectory for a resolution using all locally parsed data
@@ -141,34 +210,46 @@ uv run -m etl.trajectories.build_trajectory A/RES/78/220 --pretty -o trajectory_
 # `build_trajectory.py`:
 #   • crawls the genealogy via `trace_genealogy.py`
 #   • stitches agenda, drafts, committee reports, and plenary meetings into timesteps
-#   • emits metadata + per-timestep state/action/observation blocks for the MARL env
+#   • emits metadata + per-timestep state/action/observation blocks for the RL env
 ```
 
-Each timestep currently ends up in one of five coarse stages (`agenda_allocation`, `draft_submission`, `committee_vote`, `plenary_discussion`, `plenary_vote`) and stores three payloads: `state` (document symbol, dates, meeting numbers), `action` (sponsor, vote rolls, statements), and `observation` (publication/distribution flags plus tallies). This is the contract the RL env consumes, so tweak the builder before changing downstream agents.
+Each timestep ends up in one of five stages (`agenda_allocation`, `draft_submission`, `committee_vote`, `plenary_discussion`, `plenary_vote`) with three payloads:
+- **state:** Document symbol, dates, meeting numbers
+- **action:** Sponsors, vote rolls, statements
+- **observation:** Publication/distribution flags, vote tallies
 
-You can restrict output formatting with `--pretty` (pretty-print JSON) and point to a custom filename via `-o/--output`. The script prints a quick timeline summary when the build finishes.
+### Visualize trajectory
 
-To explore the resulting file without writing custom tooling, use the lightweight CLI visualizer:
+Multiple ways to explore trajectories:
 
 ```bash
-# Default view: walk every timestep with aggregate info
-uv run -m etl.trajectories.visualize_trajectory trajectory_A_RES_78_220.json
-
-# Helpful flags
+# CLI visualizer
 uv run -m etl.trajectories.visualize_trajectory trajectory_A_RES_78_220.json \
-    --timestep 3 \            # focus on a single stage
-    --verbose \               # show full vote rolls, longer excerpts
-    --comparison \            # compare committee vs plenary tallies
-    --countries               # summarize actions per country
+    --verbose \               # show full vote rolls
+    --comparison \            # compare committee vs plenary
+    --countries               # summarize per-country actions
+
+# Interactive gym (terminal UI)
+uv run python -m un_gym.cli.play \
+    --trajectory trajectory_A_RES_78_220.json \
+    --country France \
+    --expert                  # auto-play historical actions
+
+# Web visualization (with resolution text)
+uv run python -m un_gym.cli.generate_web_viz \
+    --trajectory trajectory_A_RES_78_220.json \
+    --country France \
+    --output viz.html
+
+open viz.html
 ```
 
-`--comparison` reproduces committee vs plenary deltas, while `--countries` aggregates everything a country did (sponsorship + votes) into a mini action log. The visualizer only reads the saved JSON, so you can share trajectories with teammates and inspect them without needing the full scrape.
+🗂️  **Reference outputs** for the Iran case study (`A/RES/78/220`):
+- `viz/analyze_iran_genealogy.py` → analysis JSON + report
+- `viz/iran_graph.html`, `viz/ukr_graph.html` → static graph previews
+- `scratch/220.json` → example trajectory for gym
 
-🗂️  `viz/` contains finished outputs for the Iran case study (`A/RES/78/220`):
-- `viz/analyze_iran_genealogy.py` → `viz/analysis_iran_genealogy.json` + `viz/analysis_iran_genealogy_report.md` (timeline, vote comparison, data availability table)
-- `viz/iran_graph.html`, `viz/ukr_graph.html`, etc. → static previews emitted by `trace_genealogy.py --graph-html`
-
-Use these artifacts as reference when evaluating whether a new session has enough coverage to build trajectories.
+See **[docs/gym.md](docs/gym.md)** for full gym documentation and API reference.
 
 ### Fetch specific document types
 
@@ -185,11 +266,14 @@ uv run -m etl.fetch_download.fetch_metadata 78 --types agenda plenary-drafts
 # Committee drafts only
 uv run -m etl.fetch_download.fetch_metadata 78 --types committee-drafts
 
+# Committee summary records
+uv run -m etl.fetch_download.fetch_metadata 78 --types committee-summary-records
+
 # Meeting records
 uv run -m etl.fetch_download.fetch_metadata 78 --types meetings
 ```
 
-Available types: `resolutions`, `committee-drafts`, `plenary-drafts`, `agenda`, `meetings`, `voting`, `all` (default)
+Available types: `resolutions`, `committee-drafts`, `committee-reports`, `committee-summary-records`, `plenary-drafts`, `agenda`, `meetings`, `voting`, `all` (default)
 
 ### Complete collection for a session
 
@@ -251,23 +335,35 @@ data/
 
 ## Project Structure
 
-**Scripts:**
-- `etl/fetch_download/fetch_metadata.py` - Fetch MARCXML from UN Digital Library API
-- `etl/parsing/parse_metadata.py` - Parse XML to JSON with PDF URLs
-- `etl/fetch_download/download_pdfs.py` - Download PDFs from extracted URLs
-- `etl/fetch_download/download_metadata_html.py` - Download HTML metadata pages from UN Digital Library
-- `etl/parsing/parse_metadata_html.py` - Parse HTML metadata pages to JSON (supports all document types)
-- `etl/trajectories/trace_genealogy.py` - Trace document genealogies
-- `etl/trajectories/build_trajectory.py` - Build RL trajectories
-- `tests/etl_tests/test_new_features.py` - Test all new document types
-- `tests/etl_tests/test_pipeline.sh` - Quick validation test
-- `etl/collect_multiple_sessions.sh` - Batch collection script
+### ETL Pipeline
+- `etl/fetch_download/` - Fetch MARCXML and HTML from UN Digital Library
+- `etl/parsing/` - Parse XML and HTML to JSON
+- `etl/trajectories/` - Trace genealogies and build RL trajectories
+- `etl/run_etl.py` - Main ETL orchestration
+- `tests/etl_tests/` - ETL pipeline tests
 
-**Documentation:**
+### UN Deliberation Gym
+- `un_gym/env.py` - Main RL environment (OpenAI Gym API)
+- `un_gym/spaces.py` - State/action space definitions
+- `un_gym/data_adapter.py` - Trajectory JSON → gym episodes
+- `un_gym/dynamics.py` - Transition dynamics (empirical sampling)
+- `un_gym/metrics.py` - Evaluation metrics
+- `un_gym/viz.py` - Plotting utilities
+- `un_gym/interactive.py` - Terminal UI
+- `un_gym/cli/` - Command-line tools (play, generate_web_viz)
+- `tests/gym/` - Gym tests (33 tests, all passing)
+
+### Documentation
+- **[docs/gym.md](docs/gym.md)** - **Complete gym documentation** (API, features, research directions)
 - `project.md` - Research project description (IGO-Gym benchmark)
 - `un_document_structure.md` - UN document naming conventions
-- `new_scrape_plan.md` - Document collection requirements
-- `ENGINEERING_NOTEBOOK.md` - Implementation notes and known issues
+- `docs/new_scrape_plan.md` - Document collection requirements
+- `docs/MEETING_UTTERANCES.md` - Statement extraction guide
+
+### Database & UI
+- `db/` - PostgreSQL schema and setup
+- `ui/` - FastAPI web application
+- `docker-compose.yml` - Local development stack
 
 # UI
 
@@ -291,17 +387,48 @@ Access at http://localhost:8000
 
 The UI now prompts for a shared password at `/login`. Set `SHARED_PASSWORD` in your environment (Render dashboard, `.env`, etc.) and share the value out-of-band with collaborators who need access.
 
-### Option 2: Databases Only + Local UI
+### Option 2: Docker UI with Hot Reload (Recommended for Development)
+```bash
+# Start UI with hot reload - changes to HTML/Python files are reflected immediately
+# No need to rebuild when editing templates, static files, or Python code
+# Uses production database by default
+docker-compose up ui_reload
+
+# Or using Makefile
+make docker-reload
+```
+Access at http://localhost:8000
+
+**Benefits:**
+- ✅ Hot reload - no rebuild needed for code changes
+- ✅ Mounts `ui/`, `db/`, `rag/` directories as volumes
+- ✅ Changes to HTML templates, CSS, and Python code reload automatically
+- ✅ Auth disabled by default (`ENABLE_AUTH=false`) for easier development
+
+**To use with dev database instead:**
+```bash
+# Connect to dev database (postgres_dev) instead of production
+docker-compose up ui_reload_dev_db
+
+# Or using Makefile
+make docker-reload-dev-db
+```
+Access at http://localhost:8001 (different port to avoid conflicts)
+
+### Option 3: Databases Only + Local UI
 ```bash
 # Start just databases
 docker-compose up postgres postgres_dev -d
 
 # Run UI with uv (hot reload for development)
 uv run uvicorn ui.app:app --reload
+
+# Or using Makefile
+make app
 ```
 Access at http://localhost:8000
 
-### Option 3: Individual Services
+### Option 4: Individual Services
 ```bash
 # Just UI (auto-starts postgres via depends_on)
 docker-compose up ui

@@ -15,13 +15,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies for psycopg2 and pdfplumber
+# Install system dependencies for psycopg2 (pdfplumber not needed for UI)
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first (better caching - these change less often)
+# Install core dependencies only (no ETL or training groups for production UI)
+# This excludes pdfplumber (ETL) and torch (training) to keep image size small
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -31,6 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . /app
 
 # Install the project (runs fast since dependencies already installed)
+# Only install core dependencies - UI doesn't need ETL or training deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 

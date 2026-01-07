@@ -2,683 +2,223 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UNGA Research Tool</title>
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            /* HKS Color Palette */
-            /* Using Web Red for primary actions as it's more vibrant */
-            --hks-red: #CC0033;
-            --hks-legacy-crimson: #AC162C;
-            --hks-blue: #0086B3;
-            --hks-dark-blue: #003946;
-            --hks-charcoal: #333333;
-            --hks-dark-gray: #666666;
-            --hks-medium-gray: #999999;
-            --hks-light-gray: #F3F3F3;
-            --hks-green: #059669;
-            --hks-yellow: #f59e0b;
-            --hks-white: #FFFFFF;
-
-            /* NOTE: Using Google Fonts as substitutes for proprietary HKS fonts */
-            /* Gotham Narrow -> Montserrat */
-            /* Sentinel -> Merriweather */
-            --font-sans: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            --font-serif: 'Merriweather', Georgia, serif;
-            --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-        }
-
-        body {
-            font-family: var(--font-sans);
-            margin: 2rem auto;
-            max-width: 1200px;
-            padding: 0 1rem;
-            line-height: 1.5;
-            background-color: var(--hks-white);
-            color: var(--hks-charcoal);
-        }
-
-        h1, h2, h3 {
-            font-family: var(--font-sans);
-            font-weight: 700;
-            color: var(--hks-charcoal);
-        }
-
-        h1 {
-            text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 2rem;
-        }
-
-        h2 {
-            font-size: 1.75rem;
-            border-bottom: 2px solid var(--hks-light-gray);
-            padding-bottom: 0.5rem;
-            margin-top: 3rem;
-        }
-        
-        textarea {
-            width: 100%;
-            min-height: 180px;
-            font-family: var(--font-mono);
-            font-size: 0.95rem;
-            padding: 0.75rem;
-            border: 1px solid var(--hks-medium-gray);
-            border-radius: 4px;
-            background-color: #fcfcfc;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 1.5rem;
-            font-size: 0.95rem;
-            border: 1px solid var(--hks-medium-gray);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        th, td {
-            border: 1px solid var(--hks-medium-gray);
-            padding: 0.75rem 1rem;
-            vertical-align: top;
-            text-align: left;
-        }
-
-        th {
-            background-color: var(--hks-light-gray);
-            font-family: var(--font-sans);
-            font-weight: 600;
-            color: var(--hks-charcoal);
-        }
-
-        td {
-            font-family: var(--font-serif);
-        }
-
-        td pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: inherit;
-        }
-
-        .error, .success, .summary {
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 4px;
-        }
-
-        .error {
-            background: #ffe5e5;
-            border: 1px solid #ffb4b4;
-            color: #9f0000;
-        }
-
-        .success {
-            background: #eef9f1;
-            border: 1px solid #c1e6d0;
-            color: #1e4620;
-        }
-
-        details summary {
-            cursor: pointer;
-            font-weight: 600;
-            color: var(--hks-charcoal);
-        }
-        
-        .samples {
-            margin-top: 2rem;
-        }
-
-        .samples pre {
-            background: var(--hks-light-gray);
-            border-left: 3px solid var(--hks-blue);
-            padding: 1rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .samples pre:hover {
-            background-color: #e9e9e9;
-        }
-
-        button {
-            color: var(--hks-white);
-            border: none;
-            padding: 0.65rem 1.5rem;
-            font-size: 1rem;
-            font-family: var(--font-sans);
-            font-weight: 600;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-
-        button:hover {
-            opacity: 0.85;
-        }
-
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .btn-primary {
-             background: var(--hks-red);
-        }
-        
-        .btn-secondary {
-            background: var(--hks-blue);
-        }
-
-        .btn-green {
-            background: var(--hks-green);
-        }
-
-        .btn-yellow {
-            background: var(--hks-yellow);
-        }
-        
-        .nl-box {
-            margin-bottom: 2rem;
-            padding: 1.5rem;
-            background: #f0f7ff;
-            border: 1px solid #b3d9ff;
-            border-radius: 4px;
-        }
-        
-        .nl-box h2 {
-            margin-top: 0;
-            border-bottom: none;
-        }
-
-        .nl-box input[type="text"] {
-            width: 100%;
-            padding: 0.75rem;
-            font-size: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-            border: 1px solid var(--hks-medium-gray);
-        }
-
-        .summary {
-            background: #fff9e6;
-            border: 1px solid #f0d700;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 4px;
-        }
-
-        .summary h3 {
-            margin-top: 0;
-            color: #856404;
-        }
-        
-        .summary-content {
-            color: #333;
-            line-height: 1.6;
-            font-family: var(--font-serif);
-        }
-
-        .summary-loading, .summary-error {
-            font-style: italic;
-        }
-
-        .summary-loading { color: #666; }
-        .summary-error { color: #9f0000; }
-        
-        .button-group {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .loading-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(255, 255, 255, 0.85);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            z-index: 999;
-            text-align: center;
-        }
-
-        .loading-overlay.active {
-            display: flex;
-        }
-
-        .wait-indicator {
-            display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            margin: 0 auto 1.25rem;
-            padding: 0.5rem 1rem;
-            width: fit-content;
-            background: var(--hks-light-gray);
-            border: 1px solid var(--hks-medium-gray);
-            border-radius: 999px;
-            color: var(--hks-dark-blue);
-            font-weight: 600;
-        }
-
-        .wait-indicator.active {
-            display: inline-flex;
-        }
-
-        .wait-indicator .wait-text {
-            font-size: 0.95rem;
-        }
-
-        .spinner {
-            width: 48px;
-            height: 48px;
-            border: 4px solid var(--hks-light-gray);
-            border-top-color: var(--hks-red);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 1rem;
-        }
-
-        .inline-spinner {
-            width: 1em;
-            height: 1em;
-            border-width: 2px;
-            margin-right: 0.5rem;
-            margin-bottom: 0;
-            display: inline-block;
-            vertical-align: middle;
-        }
-
-        .cell-doc-link {
-            margin-top: 0.35rem;
-        }
-
-        .doc-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--hks-charcoal);
-            text-decoration: none;
-        }
-
-        .doc-link::before {
-            content: "📄";
-        }
-
-        .doc-link:hover {
-            text-decoration: underline;
-        }
-
-        .btn-link {
-            background: none;
-            border: none;
-            padding: 0;
-            font: inherit;
-            color: var(--hks-charcoal);
-            cursor: pointer;
-            text-decoration: underline;
-        }
-
-        .btn-link:hover {
-            text-decoration: none;
-        }
-
-        .cell-actions {
-            margin-top: 0.35rem;
-            display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        .long-text-cell {
-            min-width: 420px;
-        }
-
-        .text-modal {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.6);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            padding: 1rem;
-        }
-
-        .text-modal.active {
-            display: flex;
-        }
-
-        .text-modal-content {
-            background: var(--hks-white);
-            border-radius: 6px;
-            padding: 1.75rem;
-            max-width: 1000px;
-            width: min(1000px, 95%);
-            max-height: 85vh;
-            overflow: hidden;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .text-modal-close {
-            border: none;
-            background: none;
-            font-size: 1.1rem;
-            font-weight: 700;
-            float: right;
-            cursor: pointer;
-            color: var(--hks-charcoal);
-        }
-
-        .text-modal-body-wrapper {
-            margin-top: 1rem;
-            overflow-y: auto;
-            max-height: 100%;
-        }
-
-        .text-modal-content pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: var(--font-serif);
-            font-size: 1rem;
-            line-height: 1.6;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <h1>UNGA Research Tool</h1>
-    <div id="wait-indicator" class="wait-indicator" role="status" aria-live="polite" aria-label="System status">
-        <span class="spinner inline-spinner" aria-hidden="true"></span>
-        <span class="wait-text">Processing request...</span>
-    </div>
-    <div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-label="Processing">
-        <div class="spinner" aria-hidden="true"></div>
-        <p class="loading-text">Working...</p>
-    </div>
-    
-    <div class="nl-box">
-        <h2>Ask a question</h2>
-        <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading-message="Sending request...">
-            <input type="text" name="natural_language_query" placeholder="e.g., Show me all resolutions where USA voted against" 
-                   value="{{ natural_language_query or '' }}">
-            <p class="button-group">
-                {% if not demo_mode %}
-                <button type="submit" name="execute" value="false" class="btn-secondary" data-loading-message="Generating SQL...">Generate SQL</button>
-                {% endif %}
-                <button type="submit" name="execute" value="true" class="btn-green" data-loading-message="Generating & running query...">Generate & Run</button>
-            </p>
-        </form>
-    </div>
 
-    {% if not demo_mode %}
-    <h2>Or Write SQL Directly</h2>
-    <p>Type a SQL command (SELECT/WITH/EXPLAIN) and run it against the local database.</p>
+    <div class="container">
+        <header>
+            <h1>UNGA Research Tool</h1>
+        </header>
 
-    <form method="post" action="/" data-loading-message="Running query...">
-        <textarea name="sql_query" spellcheck="false">{{ sql_query }}</textarea>
-        <p>
-            <button type="submit" class="btn-primary">Run Query</button>
-        </p>
-    </form>
-    {% endif %}
+        <div class="card search-wrapper">
+            <h2>Ask a question about UN resolutions</h2>
+            
+            <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading="Analyzing query...">
+                <div class="search-input-group">
+                    <input type="text" name="natural_language_query" 
+                           placeholder="e.g. Show me resolutions voted against by the USA in 2023..." 
+                           value="{{ natural_language_query or '' }}" autocomplete="off">
+                    
+                    {% if not demo_mode %}
+                    <button type="submit" name="execute" value="false" class="btn btn-secondary">
+                        Draft SQL
+                    </button>
+                    {% endif %}
+                    
+                    <button type="submit" name="execute" value="true" class="btn btn-primary">
+                        Search
+                    </button>
+                </div>
+            </form>
 
-    {% if error %}
-    <div class="error">{{ error }}</div>
-    {% endif %}
-
-    {% if result %}
-    <div class="success">
-        Returned {{ result.row_count }} rows{% if result.truncated %} (showing first {{ result.rows|length }}){% endif %}.
-        <button id="summarize-btn" class="btn-yellow" style="margin-left: 1rem;">
-            📊 Summarize Results
-        </button>
-    </div>
-    <div id="summary-container" style="display: none;"></div>
-    <div style="overflow-x:auto;">
-        <table>
-            <thead>
-                <tr>
-                    {% for column in result.columns %}
-                    <th>{{ column }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in result.rows %}
-                <tr>
-                    {% for column in result.columns %}
-                    {% set cell = row[column] %}
-                    <td class="{% if cell.long_column %}long-text-cell{% endif %}">
-                        {% if cell.truncated %}
-                        <details>
-                            <summary>{{ cell.display }}</summary>
-                            <pre>{{ cell.full }}</pre>
-                        </details>
-                        {% else %}
-                        <pre>{{ cell.display }}</pre>
-                        {% endif %}
-                        {% if cell.long_text or cell.link %}
-                        <div class="cell-actions">
-                            {% if cell.long_text %}
-                            <button type="button" class="btn-link text-expand-btn" data-full-text="{{ cell.long_text | e }}" data-column-name="{{ column }}">Read full text</button>
-                            {% endif %}
-                            {% if cell.link %}
-                            <a href="{{ cell.link }}" target="_blank" rel="noopener" class="doc-link">View PDF</a>
-                            {% endif %}
-                        </div>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                </tr>
+            {% if not demo_mode and samples %}
+            <div class="chips-row">
+                {% for sample in samples %}
+                <button type="button" class="chip" data-sql="{{ sample | e }}">
+                    {{ sample[:60] }}{% if sample|length > 60 %}...{% endif %}
+                </button>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <script type="application/json" id="result-data">{{ result | tojson }}</script>
-    <script type="application/json" id="query-data">{{ sql_query | tojson }}</script>
-    <script type="application/json" id="nl-query-data">{{ natural_language_query | tojson }}</script>
-    {% endif %}
+            </div>
+            {% endif %}
 
-    {% if not demo_mode %}
-    <div class="samples">
-        <h2>Sample Queries</h2>
-        <p>Click a block to copy it into the editor.</p>
-        {% for sample in samples %}
-        <pre class="sample-block" data-sql="{{ sample | e }}">{{ sample }}</pre>
-        {% endfor %}
-    </div>
-    {% endif %}
+            {% if error %}
+            <div class="summary-box" style="background: var(--error-bg); border-color: #fecaca; color: var(--error-text); margin-top: 1rem;">
+                <strong>Error:</strong> {{ error }}
+            </div>
+            {% endif %}
+        </div>
 
-    <div id="text-modal" class="text-modal" role="dialog" aria-modal="true" aria-hidden="true">
-        <div class="text-modal-content">
-            <button type="button" class="text-modal-close" id="text-modal-close" aria-label="Close full text">&times;</button>
-            <h3 id="text-modal-title">Full Text</h3>
-            <div class="text-modal-body-wrapper">
-                <pre id="text-modal-body"></pre>
+        {% if result %}
+        <div class="card">
+            <div class="results-header">
+                <div>
+                    <strong>Results Found:</strong> {{ result.row_count }}
+                    {% if result.truncated %} <span style="color: var(--text-secondary); font-weight:400;">(showing first {{ result.rows|length }})</span>{% endif %}
+                </div>
+                <button id="summarize-btn" class="btn btn-accent">
+                    ✨ Summarize with AI
+                </button>
+            </div>
+
+            <div id="summary-container" style="display: none;"></div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            {% for column in result.columns %}
+                            <th>{{ column.replace('_', ' ') }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in result.rows %}
+                        <tr>
+                            {% for column in result.columns %}
+                            {% set cell = row[column] %}
+                            <td>
+                                {% if cell.truncated %}
+                                <details>
+                                    <summary>{{ cell.display }}</summary>
+                                    <pre>{{ cell.full }}</pre>
+                                </details>
+                                {% else %}
+                                {{ cell.display }}
+                                {% endif %}
+
+                                {% if cell.long_text or cell.link %}
+                                <div class="actions">
+                                    {% if cell.long_text %}
+                                    <button type="button" class="badge badge-text text-expand-btn" 
+                                            data-full-text="{{ cell.long_text | e }}" 
+                                            data-column-name="{{ column }}">
+                                        Read Text
+                                    </button>
+                                    {% endif %}
+                                    {% if cell.link %}
+                                    <a href="{{ cell.link }}" target="_blank" class="badge badge-pdf">
+                                        PDF ↗
+                                    </a>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if not demo_mode %}
+        <details style="margin-top: 2rem; color: var(--text-secondary);">
+            <summary style="cursor: pointer; margin-bottom: 0.5rem;">Advanced: Edit SQL</summary>
+            <div class="card">
+                <form method="post" action="/" data-loading="Running SQL...">
+                    <textarea name="sql_query" style="width:100%; min-height:100px; padding:1rem; border:1px solid var(--border-color); border-radius: var(--radius-md); font-family: monospace;">{{ sql_query }}</textarea>
+                    <div style="text-align: right; margin-top: 1rem;">
+                        <button type="submit" class="btn btn-secondary" style="height: 40px;">Run SQL</button>
+                    </div>
+                </form>
+            </div>
+        </details>
+        {% endif %}
+
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p style="margin-top: 1rem; font-weight: 500;">Processing...</p>
+    </div>
+
+    <div id="text-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title" style="margin:0;">Full Text</h3>
+                <button type="button" class="close-modal" onclick="document.getElementById('text-modal').classList.remove('active')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="modal-body-content" style="white-space: pre-wrap; font-family: inherit;"></pre>
             </div>
         </div>
     </div>
 
+    {% if result %}
     <script>
-        {% if not demo_mode %}
-        document.querySelectorAll('.sample-block').forEach(block => {
-            block.addEventListener('click', () => {
-                const sql = block.dataset.sql.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        window.RESULT_DATA = {{ result | tojson | safe }};
+        window.SQL_QUERY = {{ sql_query | tojson | safe }};
+        window.NL_QUERY = {{ natural_language_query | tojson | safe }};
+    </script>
+    {% endif %}
+
+    <script>
+        // 1. Handling Chips
+        document.querySelectorAll('.chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const sql = btn.dataset.sql;
                 const textarea = document.querySelector('textarea[name="sql_query"]');
-                if (textarea) {
+                const input = document.querySelector('input[name="natural_language_query"]');
+                
+                if (textarea && sql.toUpperCase().includes('SELECT')) {
                     textarea.value = sql;
-                    textarea.focus();
+                    textarea.closest('details').open = true;
+                } else if (input) {
+                    input.value = btn.innerText;
                 }
-                // Also copy to clipboard for convenience
-                navigator.clipboard.writeText(sql).then(() => {
-                    // Maybe show a small notification? For now, silent.
-                });
             });
         });
-        {% endif %}
 
-        // Summarization functionality
-        const summarizeBtn = document.getElementById('summarize-btn');
-        if (summarizeBtn) {
-            summarizeBtn.addEventListener('click', async () => {
-                const resultDataEl = document.getElementById('result-data');
-                const queryDataEl = document.getElementById('query-data');
-                const nlQueryDataEl = document.getElementById('nl-query-data');
-                const summaryContainer = document.getElementById('summary-container');
-                
-                if (!resultDataEl) return;
-                
-                const result = JSON.parse(resultDataEl.textContent);
-                const sqlQuery = queryDataEl ? JSON.parse(queryDataEl.textContent) : '';
-                const naturalLanguageQuery = nlQueryDataEl ? JSON.parse(nlQueryDataEl.textContent) : '';
-                
-                // Disable button and show loading
-                summarizeBtn.disabled = true;
-                summarizeBtn.textContent = '⏳ Summarizing...';
-                summaryContainer.style.display = 'block';
-                summaryContainer.innerHTML = '<div class="summary summary-loading"><span class="spinner inline-spinner" aria-hidden="true"></span>Generating summary...</div>';
-                startWaiting('Generating summary...');
+        // 2. Loading State
+        document.querySelectorAll('form').forEach(f => {
+            f.addEventListener('submit', () => document.getElementById('loading-overlay').classList.add('active'));
+        });
+
+        // 3. Modal Logic
+        document.querySelectorAll('.text-expand-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById('modal-body-content').innerText = btn.dataset.fullText;
+                document.getElementById('text-modal').classList.add('active');
+            });
+        });
+
+        // 4. Summarization Logic
+        const sumBtn = document.getElementById('summarize-btn');
+        if(sumBtn) {
+            sumBtn.addEventListener('click', async () => {
+                const container = document.getElementById('summary-container');
+                container.style.display = 'block';
+                container.innerHTML = '<div class="summary-box">Generating summary...</div>';
+                sumBtn.disabled = true;
 
                 try {
                     const formData = new FormData();
-                    if (sqlQuery) formData.append('sql_query', sqlQuery);
-                    if (naturalLanguageQuery) formData.append('natural_language_query', naturalLanguageQuery);
-                    formData.append('result_json', JSON.stringify(result));
+                    formData.append('sql_query', window.SQL_QUERY || "");
+                    formData.append('natural_language_query', window.NL_QUERY || "");
+                    formData.append('result_json', JSON.stringify(window.RESULT_DATA));
+
+                    const res = await fetch('/api/summarize', { method: 'POST', body: formData });
+                    const data = await res.json();
                     
-                    const response = await fetch('/api/summarize', {
-                        method: 'POST',
-                        body: formData
-                    });
+                    if(!res.ok) throw new Error(data.error || 'Error');
                     
-                    const data = await response.json();
-                    
-                    if (!response.ok) {
-                        throw new Error(data.error || 'Summarization failed');
-                    }
-                    
-                    // Display summary
-                    summaryContainer.innerHTML = `
-                        <div class="summary">
-                            <h3>📊 Summary</h3>
-                            <div class="summary-content">${data.summary.replace(/\n/g, '<br>')}</div>
-                        </div>
-                    `;
-                    
-                    summarizeBtn.textContent = '✅ Summarized';
-                } catch (error) {
-                    summaryContainer.innerHTML = `
-                        <div class="summary summary-error">
-                            <h3>Error</h3>
-                            <div>${error.message}</div>
-                        </div>
-                    `;
-                    summarizeBtn.disabled = false;
-                    summarizeBtn.textContent = '📊 Summarize Results';
-                } finally {
-                    stopWaiting();
+                    container.innerHTML = `<div class="summary-box"><h3>Summary</h3>${data.summary}</div>`;
+                    sumBtn.innerText = 'Summarized';
+                } catch(e) {
+                    container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;
+                    sumBtn.disabled = false;
                 }
             });
         }
-
-        const textModal = document.getElementById('text-modal');
-        const textModalBody = document.getElementById('text-modal-body');
-        const textModalTitle = document.getElementById('text-modal-title');
-        const textModalClose = document.getElementById('text-modal-close');
-
-        function openTextModal(content, title) {
-            if (!textModal || !textModalBody) return;
-            textModalBody.textContent = content || '';
-            if (textModalTitle) {
-                textModalTitle.textContent = title || 'Full Text';
-            }
-            textModal.classList.add('active');
-            textModal.setAttribute('aria-hidden', 'false');
-        }
-
-        function closeTextModal() {
-            if (!textModal) return;
-            textModal.classList.remove('active');
-            textModal.setAttribute('aria-hidden', 'true');
-        }
-
-        document.querySelectorAll('.text-expand-btn').forEach(button => {
-            button.addEventListener('click', () => {
-                openTextModal(button.dataset.fullText || '', button.dataset.columnName || 'Full Text');
-            });
-        });
-
-        if (textModalClose) {
-            textModalClose.addEventListener('click', closeTextModal);
-        }
-
-        if (textModal) {
-            textModal.addEventListener('click', event => {
-                if (event.target === textModal) {
-                    closeTextModal();
-                }
-            });
-        }
-
-        document.addEventListener('keydown', event => {
-            if (event.key === 'Escape') {
-                closeTextModal();
-            }
-        });
-
-        const loadingOverlay = document.getElementById('loading-overlay');
-        const loadingTextEl = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
-        const waitIndicator = document.getElementById('wait-indicator');
-        const waitTextEl = waitIndicator ? waitIndicator.querySelector('.wait-text') : null;
-        let waitCount = 0;
-
-        function showLoading(message) {
-            if (!loadingOverlay || !loadingTextEl) return;
-            loadingTextEl.textContent = message || 'Processing request...';
-            loadingOverlay.classList.add('active');
-        }
-
-        function startWaiting(message) {
-            if (!waitIndicator || !waitTextEl) return;
-            waitCount += 1;
-            if (message) {
-                waitTextEl.textContent = message;
-            }
-            waitIndicator.classList.add('active');
-        }
-
-        function stopWaiting() {
-            if (!waitIndicator) return;
-            waitCount = Math.max(0, waitCount - 1);
-            if (waitCount === 0) {
-                waitIndicator.classList.remove('active');
-                if (waitTextEl) {
-                    waitTextEl.textContent = 'Processing request...';
-                }
-            }
-        }
-
-        document.querySelectorAll('form[data-loading-message]').forEach(form => {
-            form.addEventListener('submit', event => {
-                const submitter = event.submitter || document.activeElement;
-                const message = submitter?.dataset.loadingMessage || form.dataset.loadingMessage;
-                showLoading(message);
-                startWaiting(message || 'Processing request...');
-            });
-        });
     </script>
 </body>
 </html>

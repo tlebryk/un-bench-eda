@@ -34,7 +34,7 @@ Target: one GA session (e.g. 78th), then generalize.
 	•	Similar pattern for other committees or by searching “Report of the First/Second/… Committee”.
 	5.	Fetch meeting records
 	•	Plenary: A/78/PV.* (e.g., A/78/PV.62, A/78/PV.63)
-	•	Optionally committee summary records: A/C.3/78/SR.*, etc., for deeper committee-level detail.
+	•	Committee summary records: A/C.3/78/SR.*, etc., for deeper committee-level detail.
 
 ⸻
 
@@ -139,7 +139,7 @@ At a minimum, for one GA session you need to handle:
 	•	Resolution chapeaux explicitly cite these (e.g. “on the report of the First Committee (A/78/408, para. 114)”).
 	6.	Meeting records
 	•	Plenary verbatim records: A/78/PV.n
-	•	Optionally committee summary records: A/C.3/78/SR.n, A/C.1/78/SR.n, etc.
+	•	Committee summary records: A/C.3/78/SR.n, A/C.1/78/SR.n, etc.
 	•	Used to recover:
 	•	Adoption without vote
 	•	Vote tallies on amendments and drafts that never became resolutions

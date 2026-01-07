@@ -369,6 +369,42 @@ def fetch_committee_reports(session: int, output_file: str = None, base_dir: str
         return None
 
 
+def fetch_committee_summary_records(committee: int, session: int, output_file: str = None, base_dir: str = "data"):
+    """
+    Fetch committee summary records (SR documents).
+
+    Example: A/C.3/78/SR.16 = Third Committee, Session 78, Summary Record 16
+
+    Args:
+        committee: Committee number (1-6)
+        session: GA session number (e.g., 78)
+        output_file: Path to save XML (default: {base_dir}/raw/xml/session_{session}_committee_{committee}_summary_records.xml)
+        base_dir: Base data directory (default: "data")
+    """
+    if output_file is None:
+        data_dir = Path(base_dir) / "raw" / "xml"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        output_file = data_dir / f"session_{session}_committee_{committee}_summary_records.xml"
+    else:
+        output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    url = "https://digitallibrary.un.org/search"
+    # SR = Summary Record
+    params = {'p': f'191__a:"A/C.{committee}/{session}/SR.*"'}
+
+    print(f"Fetching Committee {committee} summary records for session {session}...")
+
+    try:
+        combined_xml = fetch_paginated_xml(url, params, timeout=30)
+        Path(output_file).write_text(combined_xml, encoding='utf-8')
+        print(f"Saved to: {output_file}")
+        return output_file
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+
 def fetch_voting_records(session: int, output_file: str = None, base_dir: str = "data"):
     """Fetch voting records for resolutions (c=Voting+Data)"""
     if output_file is None:
@@ -401,7 +437,7 @@ if __name__ == "__main__":
     parser.add_argument('session', type=int, help='GA session number (e.g., 78)')
     parser.add_argument('--base-dir', default='data', help='Base directory for data (default: data)')
     parser.add_argument('--types', nargs='+',
-                        choices=['resolutions', 'committee-drafts', 'committee-reports', 'plenary-drafts', 'agenda', 'meetings', 'voting', 'all'],
+                        choices=['resolutions', 'committee-drafts', 'committee-reports', 'committee-summary-records', 'plenary-drafts', 'agenda', 'meetings', 'voting', 'all'],
                         default=['all'],
                         help='Document types to fetch (default: all)')
 
@@ -413,7 +449,7 @@ if __name__ == "__main__":
 
     # Expand 'all' to all types
     if 'all' in types:
-        types = ['resolutions', 'committee-drafts', 'committee-reports', 'plenary-drafts', 'agenda', 'meetings', 'voting']
+        types = ['resolutions', 'committee-drafts', 'committee-reports', 'committee-summary-records', 'plenary-drafts', 'agenda', 'meetings', 'voting']
 
     print("="*60)
     print(f"UN METADATA FETCHER - Session {session}")
@@ -422,32 +458,37 @@ if __name__ == "__main__":
     print("="*60)
 
     if 'resolutions' in types:
-        print("\n[1/7] Fetching resolutions...")
+        print("\n[1/8] Fetching resolutions...")
         fetch_session_resolutions(session, base_dir=base_dir)
 
     if 'committee-drafts' in types:
-        print("\n[2/7] Fetching committee drafts...")
+        print("\n[2/8] Fetching committee drafts...")
         for committee in range(1, 7):
             fetch_committee_drafts(committee, session, base_dir=base_dir)
 
     if 'committee-reports' in types:
-        print("\n[3/7] Fetching committee reports...")
+        print("\n[3/8] Fetching committee reports...")
         fetch_committee_reports(session, base_dir=base_dir)
 
+    if 'committee-summary-records' in types:
+        print("\n[4/8] Fetching committee summary records...")
+        for committee in range(1, 7):
+            fetch_committee_summary_records(committee, session, base_dir=base_dir)
+
     if 'plenary-drafts' in types:
-        print("\n[4/7] Fetching plenary drafts...")
+        print("\n[5/8] Fetching plenary drafts...")
         fetch_plenary_drafts(session, base_dir=base_dir)
 
     if 'agenda' in types:
-        print("\n[5/7] Fetching agenda...")
+        print("\n[6/8] Fetching agenda...")
         fetch_agenda(session, base_dir=base_dir)
 
     if 'meetings' in types:
-        print("\n[6/7] Fetching meeting records...")
+        print("\n[7/8] Fetching meeting records...")
         fetch_meeting_records(session, base_dir=base_dir)
 
     if 'voting' in types:
-        print("\n[7/7] Fetching voting records...")
+        print("\n[8/8] Fetching voting records...")
         fetch_voting_records(session, base_dir=base_dir)
 
     print("\n" + "="*60)

@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, Request, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -23,6 +24,7 @@ from db.config import engine, get_session, is_supabase, USE_DEV_DB
 from db.models import Document
 from rag.text_to_sql import generate_sql
 from rag.rag_summarize import summarize_results
+from rag.rag_qa import answer_question
 
 # Set up logging
 LOG_DIR = Path(__file__).parent.parent / "logs"
@@ -49,6 +51,13 @@ else:
 
 APP_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+# Verify static directory exists
+STATIC_DIR = APP_DIR / "static"
+if not STATIC_DIR.exists():
+    logger.warning(f"Static directory not found at {STATIC_DIR}")
+else:
+    logger.info(f"Static directory found at {STATIC_DIR}")
 
 MAX_ROWS = 500
 MAX_DISPLAY_CHARS = 600
@@ -82,6 +91,13 @@ SAMPLE_QUERIES = [
 ]
 
 app = FastAPI(title="UN Documents SQL UI", description="Text-heavy SQL workbench for the UN database")
+
+# Mount static files
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    logger.info(f"Mounted static files from {STATIC_DIR}")
+else:
+    logger.error(f"Cannot mount static files: directory {STATIC_DIR} does not exist")
 
 # Authentication setup (feature flag controlled)
 ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'

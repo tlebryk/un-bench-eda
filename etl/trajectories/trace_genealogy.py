@@ -60,24 +60,39 @@ class UNDocumentIndex:
                     print(f"Warning: Failed to index {json_file}: {e}")
 
         # Also index PDF parsed documents
-        pdf_root = DEFAULT_PARSED_PDFS
-        if pdf_root.exists():
-            for doc_type_dir in pdf_root.iterdir():
-                if not doc_type_dir.is_dir():
+        pdf_dirs = [
+            DEFAULT_PARSED_PDFS,
+            DEFAULT_DATA_ROOT / "documents" / "pdfs"
+        ]
+        
+        for pdf_root in pdf_dirs:
+            if not pdf_root.exists():
+                continue
+                
+            # Walk through all subdirectories
+            for json_file in pdf_root.rglob("*.json"):
+                # Skip if not a parsed file or valid metadata
+                if not (json_file.name.endswith("_parsed.json") or json_file.parent.name == "committee-summary-records"):
                     continue
-
-                for json_file in doc_type_dir.glob("*.json"):
-                    try:
-                        with open(json_file) as f:
-                            data = json.load(f)
-                            # For PDF parsed docs, extract symbol from filename
-                            # e.g., A_C.3_78_L.41.json -> A/C.3/78/L.41
-                            symbol = json_file.stem.replace("_", "/").replace(".json", "")
+                    
+                try:
+                    with open(json_file) as f:
+                        data = json.load(f)
+                        # Extract symbol
+                        symbol = data.get("metadata", {}).get("symbol")
+                        # For PDF parsed docs, extract symbol from filename if metadata missing
+                        if not symbol:
+                            stem = json_file.stem.replace("_parsed", "")
+                            symbol = stem.replace("_", "/").replace(".json", "")
+                        
+                        if symbol:
                             normalized = self._normalize_symbol(symbol)
-                            if normalized not in self.documents:
+                            # Prefer files with "parsed" in name or from parsed directory
+                            if normalized not in self.documents or json_file.name.endswith("_parsed.json"):
                                 self.documents[normalized] = json_file
-                    except Exception as e:
-                        print(f"Warning: Failed to index {json_file}: {e}")
+                except Exception as e:
+                    # print(f"Warning: Failed to index {json_file}: {e}")
+                    pass
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
@@ -161,7 +176,56 @@ class DocumentGenealogy:
                 "found": self.index.find(agenda_symbol) is not None
             })
 
+        # Trace committee deliberations
+        tree["committee_deliberations"] = []
+        for report in tree["committee_reports"]:
+            srs = self.find_committee_deliberations(report["symbol"])
+            tree["committee_deliberations"].extend(srs)
+
         return tree
+
+    def find_committee_deliberations(self, report_symbol: str) -> List[Dict[str, Any]]:
+        """Find committee summary records referenced in a committee report."""
+        report_data = self.index.load(report_symbol)
+        
+        # If we loaded HTML metadata (no introduction), try to find PDF parse
+        if report_data and "introduction" not in report_data:
+            # Try to construct filename: A/78/481/Add.3 -> A_78_481_Add.3_parsed.json
+            filename = report_symbol.replace("/", "_") + "_parsed.json"
+            # Look in data/documents/pdfs/committee-reports/
+            # data_root is data/parsed/html, parent is data/parsed, parent.parent is data
+            pdf_path = self.index.data_root.parent.parent / "documents" / "pdfs" / "committee-reports" / filename
+            
+            if pdf_path.exists():
+                try:
+                    with open(pdf_path) as f:
+                        report_data = json.load(f)
+                except:
+                    pass
+        
+        if not report_data or "introduction" not in report_data:
+            return []
+
+        srs = []
+        text = report_data.get("introduction", "")
+        
+        # Look for SR references: A/C.X/78/SR.Y
+        sr_matches = re.finditer(r'A/C\.(\d+)/(\d+)/SR\.(\d+)', text)
+        seen_symbols = set()
+        
+        for match in sr_matches:
+            symbol = f"A/C.{match.group(1)}/{match.group(2)}/SR.{match.group(3)}"
+            if symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            
+            srs.append({
+                "symbol": symbol,
+                "data": self.index.load(symbol),
+                "found": self.index.find(symbol) is not None
+            })
+            
+        return srs
 
     def trace_forwards(self, agenda_symbol: str, item_number: str = None) -> Dict[str, Any]:
         """Trace forwards from agenda item to all resulting documents."""

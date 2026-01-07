@@ -134,6 +134,10 @@ def download_documents_from_metadata(json_file: str,
 
     print(f"Found {len(metadata_list)} documents")
 
+    if not metadata_list:
+        print("No documents found to download.")
+        return
+
     if max_docs:
         metadata_list = metadata_list[:max_docs]
         print(f"Limiting to {max_docs} documents")
@@ -170,6 +174,9 @@ def download_documents_from_metadata(json_file: str,
         elif 'voting' in json_filename:
             output_path = base_data_dir / "documents" / "pdfs" / "voting"
             print(f"Auto-detected: Saving voting records to {output_path}")
+        elif 'summary_records' in json_filename:
+            output_path = base_data_dir / "documents" / "pdfs" / "committee-summary-records"
+            print(f"Auto-detected: Saving committee summary records to {output_path}")
         else:
             output_path = base_data_dir / "documents" / "pdfs" / "other"
             output_path.mkdir(parents=True, exist_ok=True)

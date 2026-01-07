@@ -35,7 +35,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # FastAPI UI application
+  # FastAPI UI application (production)
   ui:
     build:
       context: .
@@ -45,8 +45,9 @@ services:
       - "8000:8000"
     environment:
       # Connect to postgres service (not localhost - we're in Docker network)
-      # Priority: Host .env > Local Docker Postgres
-      DATABASE_URL: ${DATABASE_URL:-postgresql://un_user:un_password@postgres:5432/un_documents}
+      # Use DOCKER_DATABASE_URL if set, otherwise use Docker service name 'postgres'
+      # This prevents host .env DATABASE_URL (with localhost) from breaking Docker networking
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://un_user:un_password@postgres:5432/un_documents}
       # Optional: Use dev database instead
       # DATABASE_URL: postgresql://un_user:un_password@postgres_dev:5432/un_documents_dev
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -57,6 +58,60 @@ services:
       - ./rag/logs:/app/rag/logs
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # FastAPI UI application with hot reload (for development - no rebuild needed)
+  # Uses production database by default, but code changes reload automatically
+  ui_reload:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: un_documents_ui_reload
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://un_user:un_password@postgres:5432/un_documents}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ENABLE_AUTH: ${ENABLE_AUTH:-false}
+      SHARED_PASSWORD: ${SHARED_PASSWORD:-}
+    volumes:
+      # Mount source code for hot reload - changes to these files will be reflected immediately
+      - ./ui:/app/ui
+      - ./db:/app/db
+      - ./rag:/app/rag
+      - ./logs:/app/logs
+      - ./rag/logs:/app/rag/logs
+    command: ["sh", "-c", "uvicorn ui.app:app --host 0.0.0.0 --port 8000 --reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # FastAPI UI application with hot reload, connected to dev database
+  # Use this when you want to test against the development database (postgres_dev)
+  ui_reload_dev_db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: un_documents_ui_reload_dev_db
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://un_user:un_password@postgres_dev:5432/un_documents_dev
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ENABLE_AUTH: ${ENABLE_AUTH:-false}
+      SHARED_PASSWORD: ${SHARED_PASSWORD:-}
+    volumes:
+      # Mount source code for hot reload
+      - ./ui:/app/ui
+      - ./db:/app/db
+      - ./rag:/app/rag
+      - ./logs:/app/logs
+      - ./rag/logs:/app/rag/logs
+    command: ["sh", "-c", "uvicorn ui.app:app --host 0.0.0.0 --port 8000 --reload"]
+    depends_on:
+      postgres_dev:
         condition: service_healthy
     restart: unless-stopped
 

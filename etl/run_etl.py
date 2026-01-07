@@ -28,6 +28,7 @@ from db.config import get_session, engine, get_dev_engine
 from db.utils import reset_database
 from etl.load_resolutions import ResolutionLoader
 from etl.load_meetings import MeetingLoader
+from etl.load_committee_meetings import CommitteeMeetingLoader
 from etl.load_documents import DocumentLoader
 
 
@@ -90,9 +91,13 @@ def main():
 
     # Load meetings unless resolutions-only or documents-only flag is set
     if not args.resolutions_only and not args.documents_only:
-        print("\n📊 Loading Meetings and Votes...")
+        print("\n📊 Loading Plenary Meetings and Votes...")
         meeting_loader = MeetingLoader(session, data_root)
         meeting_loader.load_all()
+        
+        print("\n📊 Loading Committee Meetings...")
+        committee_meeting_loader = CommitteeMeetingLoader(session, data_root)
+        committee_meeting_loader.load_all()
 
     session.close()
     print(f"\n✅ {db_name} ETL Complete!")

@@ -16,7 +16,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+import re
 from .trace_genealogy import UNDocumentIndex, DocumentGenealogy
+from etl.parsing.resolution_metadata import _parse_country_list_comma
 
 
 class TrajectoryBuilder:
@@ -50,6 +52,9 @@ class TrajectoryBuilder:
         # T1: Draft submission
         timesteps.extend(self._build_draft_timesteps(tree))
 
+        # T1.5: Committee deliberation
+        timesteps.extend(self._build_committee_deliberation_timesteps(tree))
+
         # T2: Committee consideration and vote
         timesteps.extend(self._build_committee_timesteps(tree))
 
@@ -78,7 +83,6 @@ class TrajectoryBuilder:
 
     def _extract_session(self, symbol: str) -> Optional[int]:
         """Extract session number from symbol."""
-        import re
         match = re.search(r'/(\d+)/', symbol or "")
         return int(match.group(1)) if match else None
 
@@ -87,7 +91,6 @@ class TrajectoryBuilder:
         for draft in tree.get("drafts", []):
             symbol = draft.get("symbol", "")
             if "/C." in symbol:
-                import re
                 match = re.search(r'/C\.(\d+)/', symbol)
                 if match:
                     return int(match.group(1))
@@ -162,7 +165,7 @@ class TrajectoryBuilder:
             pdf_draft = self._load_pdf_draft(draft_symbol)
 
             draft_text = pdf_draft.get("draft_text", "") if pdf_draft else ""
-            sponsors = self._extract_sponsors(pdf_draft or draft_data)
+            sponsors = self._extract_sponsors(draft_symbol, tree)
 
             timesteps.append({
                 "date": date,
@@ -179,7 +182,7 @@ class TrajectoryBuilder:
                     "draft_text": draft_text[:500] + "..." if len(draft_text) > 500 else draft_text,
                     "draft_text_full_length": len(draft_text),
                     "sponsors": sponsors,
-                    "co_sponsors": []  # Would need to parse from committee report
+                    "co_sponsors": []  # Now parsed from committee report!
                 },
                 "observation": {
                     "public": metadata.get("distribution") != "Confidential",
@@ -188,6 +191,52 @@ class TrajectoryBuilder:
                     "sponsor_count": len(sponsors)
                 }
             })
+
+        return timesteps
+
+    def _build_committee_deliberation_timesteps(self, tree: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Build timesteps for committee deliberations."""
+        timesteps = []
+
+        for sr in tree.get("committee_deliberations", []):
+            if not sr.get("data"):
+                continue
+
+            sr_data = sr["data"]
+            metadata = sr_data.get("metadata", {})
+            date = metadata.get("date") or metadata.get("datetime")
+
+            # Extract statements/utterances
+            utterances = []
+            for section in sr_data.get("sections", []):
+                for utterance in section.get("utterances", []):
+                    # Filter for relevant utterances
+                    if self._is_relevant_utterance(utterance, tree):
+                        utterances.append({
+                            "speaker": utterance["speaker"].get("name", "Unknown"),
+                            "text_preview": utterance["text"][:200] + "..." if len(utterance["text"]) > 200 else utterance["text"],
+                            "word_count": utterance.get("word_count", 0)
+                        })
+
+            if utterances:
+                timesteps.append({
+                    "date": date,
+                    "stage": "committee_deliberation",
+                    "action_type": "statements",
+                    "state": {
+                        "meeting_symbol": sr["symbol"],
+                        "meeting_number": metadata.get("meeting_number")
+                    },
+                    "action": {
+                        "actor": "Multiple delegations",
+                        "type": "make_statements",
+                        "utterances": utterances
+                    },
+                    "observation": {
+                        "public": True,
+                        "statement_count": len(utterances)
+                    }
+                })
 
         return timesteps
 
@@ -371,11 +420,51 @@ class TrajectoryBuilder:
                 return json.load(f)
         return None
 
-    def _extract_sponsors(self, draft_data: Dict[str, Any]) -> List[str]:
-        """Extract sponsors from draft data."""
-        # This would need to be parsed from the draft text or metadata
-        # For now, return empty list
-        return []
+    def _extract_sponsors(self, draft_symbol: str, tree: Dict[str, Any]) -> List[str]:
+        """Extract sponsors from committee reports."""
+        sponsors = set()
+
+        # Check all committee reports for this draft
+        for report in tree.get("committee_reports", []):
+            pdf_report = self._load_pdf_committee_report(report["symbol"])
+            if not pdf_report:
+                continue
+
+            # Find item for this draft
+            draft_item = self._find_draft_item_by_symbol(pdf_report, draft_symbol)
+            if not draft_item:
+                continue
+
+            item_text = draft_item.get("item_text", "")
+            if not item_text:
+                continue
+
+            # 1. Submitted by
+            submitted_match = re.search(r"submitted by\s+([^.]+)", item_text)
+            if submitted_match:
+                sponsors.update(_parse_country_list_comma(submitted_match.group(1)))
+
+            # 2. Subsequently ... joined
+            joined_matches = re.finditer(r"(?:Subsequently|At the same meeting|Also at the same meeting),\s+([^.]+?)\s+joined", item_text)
+            for match in joined_matches:
+                sponsors.update(_parse_country_list_comma(match.group(1)))
+
+        return sorted(list(sponsors))
+
+    def _find_draft_item_by_symbol(self, pdf_report: Dict[str, Any], draft_symbol: str) -> Optional[Dict[str, Any]]:
+        """Find the specific item in committee report by draft symbol."""
+        if not pdf_report:
+            return None
+
+        for item in pdf_report.get("items", []):
+            # Check draft_symbol field
+            if item.get("draft_symbol") == draft_symbol:
+                return item
+            # Also check text for symbol if explicit field missing or mismatch
+            if draft_symbol in item.get("item_text", ""):
+                return item
+
+        return None
 
     def _find_draft_in_report(self, pdf_report: Optional[Dict], drafts: List[Dict]) -> Optional[Dict]:
         """Find the specific draft item in committee report."""
