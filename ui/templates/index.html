@@ -39,7 +39,16 @@
                 </div>
             </form>
 
-            {% if not demo_mode and samples %}
+            {% if demo_mode and demo_questions %}
+            <div class="chips-row">
+                <p style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">Example questions:</p>
+                {% for question in demo_questions %}
+                <button type="button" class="chip demo-question-chip" data-question="{{ question | e }}">
+                    {{ question }}
+                </button>
+                {% endfor %}
+            </div>
+            {% elif not demo_mode and samples %}
             <div class="chips-row">
                 {% for sample in samples %}
                 <button type="button" class="chip" data-sql="{{ sample | e }}">
@@ -56,6 +65,55 @@
             {% endif %}
         </div>
 
+        {% if rag_answer %}
+        <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9;">
+            <h2 style="margin-top: 0; color: #0369a1;">Answer</h2>
+            <div class="rag-answer-content" style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
+                {{ rag_answer.answer | replace('\n', '<br>') | safe }}
+            </div>
+            
+            {% if rag_answer.sources %}
+            <details style="margin-top: 1rem;">
+                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Sources ({{ rag_answer.sources|length }})</summary>
+                <div style="margin-top: 0.5rem;">
+                    {% for source in rag_answer.sources %}
+                    <span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block; cursor: pointer;" 
+                          onclick="window.open('https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=' + encodeURIComponent('{{ source }}'), '_blank')">
+                        {{ source }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+            
+            {% if rag_answer.evidence %}
+            <details style="margin-top: 1rem;">
+                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Evidence Details</summary>
+                <div style="margin-top: 0.5rem;">
+                    {% for ev in rag_answer.evidence %}
+                    <div style="padding: 0.75rem; background: white; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #0ea5e9;">
+                        <strong>{{ ev.type|title }}:</strong> 
+                        {% if ev.symbol %}<code>{{ ev.symbol }}</code>{% endif %}
+                        {% if ev.data %}
+                        <div style="margin-top: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">
+                            {% for key, value in ev.data.items() %}
+                            <span>{{ key }}: {{ value }}</span>{% if not loop.last %} | {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if ev.text_excerpt %}
+                        <div style="margin-top: 0.5rem; font-style: italic; color: var(--text-secondary); font-size: 0.9rem;">
+                            "{{ ev.text_excerpt[:200] }}{% if ev.text_excerpt|length > 200 %}...{% endif %}"
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% if result %}
         <div class="card">
             <div class="results-header">
@@ -63,12 +121,20 @@
                     <strong>Results Found:</strong> {{ result.row_count }}
                     {% if result.truncated %} <span style="color: var(--text-secondary); font-weight:400;">(showing first {{ result.rows|length }})</span>{% endif %}
                 </div>
-                <button id="summarize-btn" class="btn btn-accent">
-                    ✨ Summarize with AI
-                </button>
+                {% if not demo_mode %}
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="summarize-btn" class="btn btn-accent">
+                        ✨ Summarize
+                    </button>
+                    <button id="answer-btn" class="btn btn-accent">
+                        💬 Answer Question
+                    </button>
+                </div>
+                {% endif %}
             </div>
 
             <div id="summary-container" style="display: none;"></div>
+            <div id="answer-container" style="display: none;"></div>
 
             <div class="table-container">
                 <table>
@@ -134,6 +200,15 @@
         </details>
         {% endif %}
 
+        {% if demo_mode and sql_query %}
+        <div class="card" style="background: #f9fafb; border: 1px dashed #d1d5db;">
+            <details>
+                <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">View Generated SQL (Demo)</summary>
+                <pre style="margin-top: 0.5rem; padding: 1rem; background: white; border-radius: 6px; overflow-x: auto; font-size: 0.85rem;">{{ sql_query }}</pre>
+            </details>
+        </div>
+        {% endif %}
+
     </div>
 
     <div id="loading-overlay" class="loading-overlay">
@@ -162,14 +237,26 @@
     {% endif %}
 
     <script>
-        // 1. Handling Chips
-        document.querySelectorAll('.chip').forEach(btn => {
+        // 1. Handling Demo Question Chips
+        document.querySelectorAll('.demo-question-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const question = btn.dataset.question;
+                const input = document.querySelector('input[name="natural_language_query"]');
+                if (input) {
+                    input.value = question;
+                    input.closest('form').submit();
+                }
+            });
+        });
+
+        // 2. Handling SQL Chips (non-demo)
+        document.querySelectorAll('.chip:not(.demo-question-chip)').forEach(btn => {
             btn.addEventListener('click', () => {
                 const sql = btn.dataset.sql;
                 const textarea = document.querySelector('textarea[name="sql_query"]');
                 const input = document.querySelector('input[name="natural_language_query"]');
                 
-                if (textarea && sql.toUpperCase().includes('SELECT')) {
+                if (textarea && sql && sql.toUpperCase().includes('SELECT')) {
                     textarea.value = sql;
                     textarea.closest('details').open = true;
                 } else if (input) {
@@ -211,11 +298,49 @@
                     
                     if(!res.ok) throw new Error(data.error || 'Error');
                     
-                    container.innerHTML = `<div class="summary-box"><h3>Summary</h3>${data.summary}</div>`;
+                    container.innerHTML = `<div class="summary-box"><h3>Summary</h3>${data.summary.replace(/\n/g, '<br>')}</div>`;
                     sumBtn.innerText = 'Summarized';
                 } catch(e) {
                     container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;
                     sumBtn.disabled = false;
+                }
+            });
+        }
+
+        // 5. Answer Question Logic
+        const answerBtn = document.getElementById('answer-btn');
+        if(answerBtn) {
+            answerBtn.addEventListener('click', async () => {
+                const container = document.getElementById('answer-container');
+                container.style.display = 'block';
+                container.innerHTML = '<div class="summary-box">Generating answer...</div>';
+                answerBtn.disabled = true;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('sql_query', window.SQL_QUERY || "");
+                    formData.append('natural_language_query', window.NL_QUERY || "");
+                    formData.append('result_json', JSON.stringify(window.RESULT_DATA));
+
+                    const res = await fetch('/api/rag-answer', { method: 'POST', body: formData });
+                    const data = await res.json();
+                    
+                    if(!res.ok) throw new Error(data.error || 'Error');
+                    
+                    let sourcesHtml = '';
+                    if(data.sources && data.sources.length > 0) {
+                        sourcesHtml = `<details style="margin-top: 1rem;"><summary style="cursor: pointer; font-weight: 600;">Sources (${data.sources.length})</summary><div style="margin-top: 0.5rem;">`;
+                        data.sources.forEach(source => {
+                            sourcesHtml += `<span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block;">${source}</span>`;
+                        });
+                        sourcesHtml += '</div></details>';
+                    }
+                    
+                    container.innerHTML = `<div class="summary-box" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9;"><h3 style="color: #0369a1; margin-top: 0;">Answer</h3><div style="font-size: 1.1rem; line-height: 1.7;">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}</div>`;
+                    answerBtn.innerText = 'Answered';
+                } catch(e) {
+                    container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;
+                    answerBtn.disabled = false;
                 }
             });
         }

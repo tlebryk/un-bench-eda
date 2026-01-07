@@ -1,0 +1,288 @@
+/* static/styles.css */
+
+/* 1. Base Variables & Reset */
+:root {
+    /* Modern, clean palette */
+    --bg-app: #F3F4F6;       /* Light gray background */
+    --bg-card: #FFFFFF;      /* White cards */
+    --text-primary: #111827; /* Near black */
+    --text-secondary: #6B7280; /* Muted gray */
+    --border-color: #E5E7EB;
+    
+    /* Brand Colors */
+    --accent: #2563EB;       /* Standard Tech Blue */
+    --accent-hover: #1D4ED8;
+    --primary-btn: #000000;  /* High contrast black buttons (Trend in AI tools) */
+    --primary-btn-hover: #333333;
+    
+    /* Functional Colors */
+    --success-bg: #ECFDF5;
+    --success-text: #065F46;
+    --error-bg: #FEF2F2;
+    --error-text: #991B1B;
+
+    /* Spacing & Shape */
+    --radius-lg: 12px;
+    --radius-md: 8px;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+* { box-sizing: border-box; }
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 2. Layout */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+h1 {
+    font-weight: 800;
+    font-size: 2rem;
+    letter-spacing: -0.05rem;
+    margin: 0;
+}
+
+/* 3. Cards */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+/* 4. The Search Bar (The "Hero" Element) */
+.search-wrapper h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+.search-input-group {
+    display: flex;
+    gap: 0.75rem;
+}
+
+input[type="text"] {
+    flex: 1;
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: all 0.2s;
+    outline: none;
+    box-shadow: var(--shadow-sm);
+}
+
+input[type="text"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 5. Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 1.5rem;
+    font-weight: 500;
+    font-size: 0.95rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    text-decoration: none;
+    height: 50px; /* Match input height */
+}
+
+/* Primary = Black (Like Hebbia/Vercel/OpenAI) */
+.btn-primary {
+    background-color: var(--primary-btn);
+    color: white;
+}
+.btn-primary:hover { background-color: var(--primary-btn-hover); transform: translateY(-1px); }
+
+/* Secondary = White */
+.btn-secondary {
+    background-color: white;
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+.btn-secondary:hover { background-color: var(--bg-app); }
+
+/* Accent = Blue (Used for Summary) */
+.btn-accent {
+    background-color: var(--accent);
+    color: white;
+    height: auto;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+.btn-accent:hover { background-color: var(--accent-hover); }
+
+/* 6. Chips (Sample Queries) */
+.chips-row {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.chip {
+    background: var(--bg-app);
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    border-radius: 20px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.chip:hover {
+    background: white;
+    border-color: var(--border-color);
+    color: var(--accent);
+    box-shadow: var(--shadow-sm);
+}
+
+/* 7. Results Table */
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.table-container {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+th {
+    text-align: left;
+    background: #F9FAFB;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+td {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: top;
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafafa; }
+
+/* Truncation & Preformatted text in cells */
+details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+pre { margin: 0.5rem 0 0; font-family: inherit; white-space: pre-wrap; color: var(--text-secondary); font-size: 0.85rem; }
+
+/* 8. Action Badges (PDF/Text) */
+.actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+}
+
+.badge-pdf { background: #fee2e2; color: #991b1b; } /* Red tint */
+.badge-text { background: #e0e7ff; color: #3730a3; } /* Indigo tint */
+.badge:hover { opacity: 0.8; }
+
+/* 9. Utilities: Summary Box & Loading */
+.summary-box {
+    background: var(--success-bg);
+    border: 1px solid #A7F3D0;
+    border-radius: var(--radius-md);
+    padding: 1.5rem;
+    color: var(--success-text);
+    margin-bottom: 1.5rem;
+}
+
+.loading-overlay {
+    position: fixed; top:0; left:0; right:0; bottom:0;
+    background: rgba(255,255,255,0.9);
+    z-index: 999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+.loading-overlay.active { display: flex; }
+.spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 10. Modal */
+.modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+.modal.active { display: flex; }
+.modal-content {
+    background: white;
+    border-radius: var(--radius-lg);
+    width: 100%; max-width: 800px; max-height: 85vh;
+    display: flex; flex-direction: column;
+}
+.modal-header {
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color);
+    display: flex; justify-content: space-between;
+}
+.modal-body { padding: 1.5rem; overflow-y: auto; }
+.close-modal { background: none; border: none; font-size: 1.5rem; cursor: pointer; }

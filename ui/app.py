@@ -90,6 +90,14 @@ SAMPLE_QUERIES = [
     """WITH target_resolution AS (\n    SELECT id, symbol, title\n    FROM documents\n    WHERE symbol = 'A/RES/78/220'\n)\nSELECT 'resolution' AS link_type, doc.doc_type, doc.symbol, doc.title\nFROM target_resolution tr\nJOIN documents doc ON doc.id = tr.id\nUNION ALL\nSELECT rel.relationship_type, src.doc_type, src.symbol, COALESCE(src.title, src.doc_metadata->'metadata'->>'title') AS title\nFROM target_resolution tr\nJOIN document_relationships rel ON rel.target_id = tr.id\nJOIN documents src ON src.id = rel.source_id\nORDER BY link_type;""",
 ]
 
+# Example questions for demo mode
+DEMO_QUESTIONS = [
+    "Why did countries vote against A/RES/78/220?",
+    "Which countries abstained from voting on Iran-related resolutions in session 78?",
+    "What did France say about climate change in plenary meetings?",
+    "Show me all resolutions about human rights in session 78",
+]
+
 app = FastAPI(title="UN Documents SQL UI", description="Text-heavy SQL workbench for the UN database")
 
 # Mount static files
@@ -435,6 +443,8 @@ def home(request: Request):
             "samples": SAMPLE_QUERIES,
             "natural_language_query": "",
             "demo_mode": demo_mode,
+            "demo_questions": DEMO_QUESTIONS,
+            "rag_answer": None,
         },
     )
 
@@ -489,8 +499,132 @@ def run_query(request: Request, sql_query: str = Form(...)):
                 "samples": SAMPLE_QUERIES,
                 "natural_language_query": "",
                 "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
             },
             status_code=400,
+        )
+
+
+@app.post("/rag-answer", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def rag_answer_query(
+    request: Request,
+    natural_language_query: str = Form(None),
+    sql_query: str = Form(None),
+    result_json: str = Form(None)
+):
+    """Answer a question using RAG with evidence grounding (HTML response)."""
+    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    
+    try:
+        result = None
+        final_sql_query = sql_query
+        
+        # If natural language query provided, generate and execute SQL
+        if natural_language_query:
+            if not sql_query:
+                final_sql_query = generate_sql(natural_language_query)
+                logger.info(f"Generated SQL: {final_sql_query}")
+            
+            if final_sql_query:
+                allowed, message = is_query_allowed(final_sql_query)
+                if not allowed:
+                    return templates.TemplateResponse(
+                        "index.html",
+                        {
+                            "request": request,
+                            "sql_query": final_sql_query,
+                            "result": None,
+                            "error": f"Query not allowed: {message}",
+                            "samples": SAMPLE_QUERIES,
+                            "natural_language_query": natural_language_query,
+                            "demo_mode": demo_mode,
+                            "demo_questions": DEMO_QUESTIONS,
+                            "rag_answer": None,
+                        },
+                        status_code=400,
+                    )
+                
+                result = execute_sql(final_sql_query)
+                logger.info(f"SQL executed - Rows: {result['row_count']}")
+        
+        elif result_json:
+            result = json.loads(result_json)
+        
+        if not result:
+            return templates.TemplateResponse(
+                "index.html",
+                {
+                    "request": request,
+                    "sql_query": sql_query or "",
+                    "result": None,
+                    "error": "Either natural_language_query or result_json must be provided",
+                    "samples": SAMPLE_QUERIES,
+                    "natural_language_query": natural_language_query or "",
+                    "demo_mode": demo_mode,
+                    "demo_questions": DEMO_QUESTIONS,
+                    "rag_answer": None,
+                },
+                status_code=400,
+            )
+        
+        original_question = natural_language_query or "Answer based on these results"
+        
+        # Call RAG Q&A
+        rag_answer = answer_question(
+            query_results=result,
+            original_question=original_question,
+            sql_query=final_sql_query
+        )
+        
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "sql_query": final_sql_query or sql_query or "",
+                "result": result,
+                "error": None,
+                "samples": SAMPLE_QUERIES,
+                "natural_language_query": original_question,
+                "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": rag_answer,
+            },
+        )
+    
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid JSON: {str(exc)}")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "sql_query": sql_query or "",
+                "result": None,
+                "error": f"Invalid JSON: {str(exc)}",
+                "samples": SAMPLE_QUERIES,
+                "natural_language_query": natural_language_query or "",
+                "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
+            },
+            status_code=400,
+        )
+    except Exception as exc:
+        logger.error(f"RAG Q&A failed: {str(exc)}", exc_info=True)
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "sql_query": sql_query or "",
+                "result": None,
+                "error": f"Failed to answer question: {str(exc)}",
+                "samples": SAMPLE_QUERIES,
+                "natural_language_query": natural_language_query or "",
+                "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
+            },
+            status_code=500,
         )
 
 
@@ -597,6 +731,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                 "samples": SAMPLE_QUERIES,
                 "natural_language_query": "",
                 "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
             },
             status_code=400,
         )
@@ -621,6 +757,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
                         "demo_mode": demo_mode,
+                        "demo_questions": DEMO_QUESTIONS,
+                        "rag_answer": None,
                     },
                     status_code=400,
                 )
@@ -628,6 +766,20 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
             try:
                 result = execute_sql(sql_query)
                 logger.info(f"SQL executed successfully - Rows returned: {result['row_count']}, Truncated: {result['truncated']}")
+                
+                # In demo mode, auto-trigger RAG Q&A
+                rag_answer = None
+                if demo_mode:
+                    try:
+                        rag_answer = answer_question(
+                            query_results=result,
+                            original_question=natural_language_query,
+                            sql_query=sql_query
+                        )
+                        logger.info(f"RAG Q&A completed - Sources: {len(rag_answer.get('sources', []))}")
+                    except Exception as rag_exc:
+                        logger.warning(f"RAG Q&A failed in demo mode: {str(rag_exc)}")
+                        # Continue without RAG answer
                 
                 return templates.TemplateResponse(
                     "index.html",
@@ -639,6 +791,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
                         "demo_mode": demo_mode,
+                        "demo_questions": DEMO_QUESTIONS,
+                        "rag_answer": rag_answer,
                     },
                 )
             except SQLAlchemyError as exc:
@@ -653,6 +807,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                         "samples": SAMPLE_QUERIES,
                         "natural_language_query": natural_language_query,
                         "demo_mode": demo_mode,
+                        "demo_questions": DEMO_QUESTIONS,
+                        "rag_answer": None,
                     },
                     status_code=400,
                 )
@@ -669,6 +825,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                     "samples": SAMPLE_QUERIES,
                     "natural_language_query": natural_language_query,
                     "demo_mode": demo_mode,
+                    "demo_questions": DEMO_QUESTIONS,
+                    "rag_answer": None,
                 },
             )
     except Exception as exc:
@@ -683,6 +841,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                 "samples": SAMPLE_QUERIES,
                 "natural_language_query": natural_language_query,
                 "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
             },
             status_code=500,
         )
@@ -726,4 +886,81 @@ def api_summarize(
         return JSONResponse({"error": f"Invalid JSON: {str(exc)}"}, status_code=400)
     except Exception as exc:
         logger.error(f"Summarization failed: {str(exc)}", exc_info=True)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/rag-answer", dependencies=[Depends(require_auth)])
+def api_rag_answer(
+    natural_language_query: str = Form(None),
+    sql_query: str = Form(None),
+    result_json: str = Form(None)
+):
+    """
+    Answer a question using RAG with evidence grounding.
+    
+    Accepts either:
+    - natural_language_query: Generate SQL, execute, then answer
+    - sql_query + result_json: Use existing query results to answer
+    
+    Returns structured answer with citations.
+    """
+    logger.info(f"RAG Q&A API request - NL: {natural_language_query}, SQL: {sql_query}")
+    
+    try:
+        result = None
+        final_sql_query = sql_query
+        
+        # If natural language query provided, generate and execute SQL
+        if natural_language_query:
+            if not sql_query:
+                # Generate SQL from natural language
+                final_sql_query = generate_sql(natural_language_query)
+                logger.info(f"Generated SQL: {final_sql_query}")
+            
+            # Execute SQL if we have a query
+            if final_sql_query:
+                allowed, message = is_query_allowed(final_sql_query)
+                if not allowed:
+                    return JSONResponse({
+                        "error": f"Query not allowed: {message}",
+                        "sql": final_sql_query,
+                        "natural_language_query": natural_language_query
+                    }, status_code=400)
+                
+                result = execute_sql(final_sql_query)
+                logger.info(f"SQL executed - Rows: {result['row_count']}")
+        
+        # If result_json provided, parse it
+        elif result_json:
+            result = json.loads(result_json)
+        
+        if not result:
+            return JSONResponse({
+                "error": "Either natural_language_query or result_json must be provided"
+            }, status_code=400)
+        
+        # Determine original question
+        original_question = natural_language_query or "Answer based on these results"
+        
+        # Call RAG Q&A
+        rag_response = answer_question(
+            query_results=result,
+            original_question=original_question,
+            sql_query=final_sql_query
+        )
+        
+        return {
+            "answer": rag_response["answer"],
+            "evidence": rag_response["evidence"],
+            "sources": rag_response["sources"],
+            "original_question": original_question,
+            "sql": final_sql_query,
+            "row_count": result.get("row_count", 0)
+        }
+    
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid JSON in result_json: {str(exc)}")
+        return JSONResponse({"error": f"Invalid JSON: {str(exc)}"}, status_code=400)
+    except Exception as exc:
+        logger.error(f"RAG Q&A failed: {str(exc)}", exc_info=True)
         return JSONResponse({"error": str(exc)}, status_code=500)
