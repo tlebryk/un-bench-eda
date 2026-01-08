@@ -68,8 +68,8 @@
         {% if rag_answer %}
         <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9;">
             <h2 style="margin-top: 0; color: #0369a1;">Answer</h2>
-            <div class="rag-answer-content" style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
-                {{ rag_answer.answer | replace('\n', '<br>') | safe }}
+            <div class="rag-answer-content" style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem; white-space: pre-wrap;">
+                {{ rag_answer.answer }}
             </div>
             
             {% if rag_answer.sources %}

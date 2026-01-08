@@ -132,7 +132,7 @@ Rules:
 The database contains UN General Assembly documents, votes, actors (countries), and meeting utterances."""
 
 
-def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-07") -> Optional[str]:
+def generate_sql(natural_language_query: str, model: str = "gpt-4o-mini") -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
     
@@ -148,14 +148,15 @@ def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-0
     client = get_client()
     
     try:
-        result = client.responses.create(
+        # Use standard OpenAI chat completions API
+        prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + f"\n\nConvert this question to SQL: {natural_language_query}"
+        result = client.chat.completions.create(
             model=model,
-            input=SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + f"\n Convert this question to SQL: {natural_language_query}",
-            reasoning={"effort": "low"},
-            text={"verbosity": "low"},
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
         )
-        
-        sql_query = result.output_text.strip()
+
+        sql_query = result.choices[0].message.content.strip()
         
         # Remove markdown code blocks if present
         if sql_query.startswith("```sql"):
@@ -180,7 +181,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Convert natural language to SQL")
     parser.add_argument("query", help="Natural language query")
-    parser.add_argument("--model", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", default="gpt-5-nano-2025-08-07", help="OpenAI model to use")
     args = parser.parse_args()
     
     try:

@@ -121,7 +121,7 @@ def extract_text_fields(query_results: Dict[str, Any]) -> List[str]:
 def summarize_results(
     query_results: Dict[str, Any],
     original_question: str,
-    model: str = "gpt-5-mini-2025-08-07"
+    model: str = "gpt-4o-mini"
 ) -> str:
     """
     Summarize SQL query results using RAG (Retrieval-Augmented Generation).
@@ -168,16 +168,16 @@ Please provide a summary that:
 Summary:"""
     
     client = get_client()
-    
+
     try:
-        result = client.responses.create(
+        # Use standard OpenAI chat completions API
+        result = client.chat.completions.create(
             model=model,
-            input=prompt,
-            reasoning={"effort": "low"},
-            text={"verbosity": "low"},
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
         )
-        
-        summary = result.output_text.strip()
+
+        summary = result.choices[0].message.content.strip()
         logger.info(f"Successfully generated summary (length: {len(summary)} chars)")
         
         return summary
