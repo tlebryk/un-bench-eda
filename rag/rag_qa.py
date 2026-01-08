@@ -333,7 +333,7 @@ def answer_question(
     query_results: Dict[str, Any],
     original_question: str,
     sql_query: Optional[str] = None,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-nano-2025-08-07"
 ) -> Dict[str, Any]:
     """
     Answer a question using RAG with strict evidence grounding.
@@ -436,7 +436,7 @@ Answer:"""
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+            # temperature=0.3,
         )
 
         answer = result.choices[0].message.content.strip()
@@ -471,7 +471,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Answer questions using RAG with evidence grounding")
     parser.add_argument("question", help="Natural language question")
-    parser.add_argument("--model", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", default="gpt-5-nano-2025-08-07", help="OpenAI model to use")
     args = parser.parse_args()
     
     print("This module is designed to be used programmatically.")

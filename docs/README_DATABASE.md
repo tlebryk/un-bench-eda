@@ -32,11 +32,13 @@ docker ps  # Should show un_documents_db
 uv run python scripts/setup_db.py
 ```
 
-This creates 4 tables:
-- `documents` - All UN documents (resolutions, drafts, etc.)
-- `actors` - Countries and organizations
-- `votes` - Voting records (plenary and committee)
+This creates the SQLAlchemy models defined in `db/models.py`:
+- `documents` - All UN documents (resolutions, drafts, meetings, agenda, etc.)
 - `document_relationships` - Links between documents
+- `actors` - Countries, observers, UN officials
+- `votes` - Committee + plenary roll-call records
+- `utterances` - Parsed statements from meetings
+- `utterance_documents` - Junction table linking utterances to the documents they mention
 
 ### 4. Load Data
 
@@ -136,7 +138,7 @@ The SQL UI now includes a text-to-SQL feature powered by OpenAI. You can ask que
    OPENAI_API_KEY=your_openai_api_key_here
    DATABASE_URL=postgresql://un_user:un_password@localhost:5433/un_documents
    ```
-3. The app uses `gpt-5-mini-2025-08-07` by default (cheap and fast). You can change this in `text_to_sql.py`.
+3. The app uses `gpt-5-nano-2025-08-07` by default (cheap and fast). You can change this in `text_to_sql.py`.
 
 **Usage:**
 - In the SQL UI (http://127.0.0.1:8000), use the "Ask in Natural Language" section at the top
@@ -163,6 +165,40 @@ curl -X POST http://localhost:8000/api/text-to-sql \
 ```bash
 uv run text_to_sql.py "Show me all resolutions where USA voted against"
 ```
+
+---
+
+## Schema Snapshot (January 2026)
+
+`db/models.py` is the source of truth for the database. `scripts/setup_db.py` builds the six tables listed below, and the schema mirrors the structures used by the RAG + multi-step agents.
+
+### Table overview
+- **documents** – canonical record for every artifact (resolutions, drafts, committee reports, meetings, agenda, decisions). Stores normalized fields plus a JSONB `doc_metadata` blob for source-specific attributes.
+- **document_relationships** – directional edges such as `draft_of`, `committee_report_for`, `meeting_for`, `agenda_item` that power genealogy traversal.
+- **actors** – normalized participants (countries, observers, UN officials) so we can join votes + utterances.
+- **votes** – roll-call data from committee/plenary stages; keyed to both `documents` and `actors`.
+- **utterances** – parsed statements from plenary meetings and committee summary records with speaker metadata.
+- **utterance_documents** – many-to-many helper that ties utterances to the specific drafts/resolutions they reference (`reference_type='voting_on'`, `mentioned`, etc.).
+
+### Current implementation status
+- **Fully implemented:** the six tables above, including cascading relationships and helper methods exposed in `db/models.py`.
+- **Partially implemented:**
+  - `documents` is missing a few optional columns from the earlier design (`committee`, `record_id`, `action_note`, `body_text_vector`, `updated_at`, `source_file`), but the JSONB metadata keeps the data accessible.
+  - `actors` only stores `name` + `actor_type`; alias handling / normalized names are still TODO.
+  - Full-text search columns (`body_text_vector`) and associated GIN indexes are not created yet.
+  - `document_relationships` lacks a uniqueness constraint on `(source_id, target_id, relationship_type)`—watch for duplicates in ETL jobs.
+- **Not yet implemented tables:** `sponsorships`, `agenda_items`, `committee_report_items`, and `files`. Sponsors currently live inside trajectory JSON; agenda tables are inferred through relationships.
+
+### Foreign key + traversal strategy
+- All relationships use integer IDs, not symbols. This matches the SQLAlchemy models and dramatically simplifies joins in scripts like `rag/multistep/tools.py`.
+- Recursive traversal (for genealogy queries) happens via SQL CTEs that fan out from `documents.id` through `document_relationships`. See the `execute_get_related_documents` helper for the canonical query pattern.
+
+### Backlog / next improvements
+- Add the missing document columns noted above plus updated timestamps.
+- Introduce dedicated `sponsorships` + `agenda_items` tables once extraction scripts land.
+- Build materialized views or helper SQL to expose JSONB fields that the UI/RAG layers query frequently.
+- Add GIN indexes for `doc_metadata` and future `body_text_vector` columns to support full-text search.
+- Stand up an `actor_aliases` helper table to normalize spelling variants in votes/utterances.
 
 ---
 

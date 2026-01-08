@@ -145,5 +145,5 @@ uv run python -m un_gym.cli.generate_web_viz --help
 ## See Also
 
 - **Full documentation:** [docs/gym.md](../../docs/gym.md)
-- **Quick reference:** [docs/gym_quickref.md](../../docs/gym_quickref.md)
-- **Expert mode guide:** [scratch/EXPERT_MODE_README.md](../../scratch/EXPERT_MODE_README.md)
+- **Evaluation + training notes:** [docs/training_eval.md](../../docs/training_eval.md)
+- **Database schema (for votes/utterances referenced in viz):** [docs/README_DATABASE.md](../../docs/README_DATABASE.md)

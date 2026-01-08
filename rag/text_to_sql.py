@@ -132,13 +132,13 @@ Rules:
 The database contains UN General Assembly documents, votes, actors (countries), and meeting utterances."""
 
 
-def generate_sql(natural_language_query: str, model: str = "gpt-4o-mini") -> Optional[str]:
+def generate_sql(natural_language_query: str, model: str = "gpt-5-nano-2025-08-07") -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
     
     Args:
         natural_language_query: The natural language question
-        model: OpenAI model to use (default: gpt-5-mini-2025-08-07 for cost/speed)
+        model: OpenAI model to use (default: gpt-5-nano-2025-08-07 for cost/speed)
     
     Returns:
         SQL query string or None if generation fails
@@ -153,7 +153,7 @@ def generate_sql(natural_language_query: str, model: str = "gpt-4o-mini") -> Opt
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+            # temperature=0.3,
         )
 
         sql_query = result.choices[0].message.content.strip()

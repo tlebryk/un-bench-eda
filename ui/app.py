@@ -964,3 +964,71 @@ def api_rag_answer(
     except Exception as exc:
         logger.error(f"RAG Q&A failed: {str(exc)}", exc_info=True)
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+# Multi-step RAG endpoints
+
+@app.post("/api/multistep-answer", dependencies=[Depends(require_auth)])
+def api_multistep_answer(natural_language_query: str = Form(...)):
+    """Multi-step RAG with automatic tool selection."""
+    from rag.multistep.orchestrator import MultiStepOrchestrator
+
+    logger.info(f"Multi-step query: {natural_language_query}")
+
+    try:
+        orchestrator = MultiStepOrchestrator()
+        result = orchestrator.answer_multistep(natural_language_query)
+
+        return {
+            "answer": result["answer"],
+            "evidence": result["evidence"],
+            "sources": result["sources"],
+            "steps": result["steps"],
+            "row_count": len(result.get("evidence", []))
+        }
+    except Exception as exc:
+        logger.error(f"Multi-step query failed: {str(exc)}", exc_info=True)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/multistep-answer", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def multistep_answer_html(request: Request, natural_language_query: str = Form(...)):
+    """HTML version of multi-step RAG."""
+    from rag.multistep.orchestrator import MultiStepOrchestrator
+
+    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+
+    try:
+        orchestrator = MultiStepOrchestrator()
+        result = orchestrator.answer_multistep(natural_language_query)
+
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "natural_language_query": natural_language_query,
+                "rag_answer": result,
+                "demo_mode": demo_mode,
+                "demo_questions": DEMO_QUESTIONS,
+                "samples": SAMPLE_QUERIES,
+                "sql_query": "", # Multi-step doesn't have a single SQL query
+                "result": None,
+                "error": None
+            },
+        )
+    except Exception as exc:
+        logger.error(f"Multi-step query failed: {str(exc)}", exc_info=True)
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "error": f"Multi-step query failed: {str(exc)}",
+                "natural_language_query": natural_language_query,
+                "demo_mode": demo_mode,
+                "samples": SAMPLE_QUERIES,
+                "demo_questions": DEMO_QUESTIONS,
+                "rag_answer": None,
+                "sql_query": "",
+                "result": None,
+            },
+            status_code=500,
+        )

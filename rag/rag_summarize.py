@@ -121,7 +121,7 @@ def extract_text_fields(query_results: Dict[str, Any]) -> List[str]:
 def summarize_results(
     query_results: Dict[str, Any],
     original_question: str,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-nano-2025-08-07"
 ) -> str:
     """
     Summarize SQL query results using RAG (Retrieval-Augmented Generation).
@@ -132,7 +132,7 @@ def summarize_results(
     Args:
         query_results: Result dictionary from execute_sql
         original_question: The original natural language question that generated the query
-        model: OpenAI model to use (default: gpt-5-mini-2025-08-07)
+        model: OpenAI model to use (default: gpt-5-nano-2025-08-07)
     
     Returns:
         Summary string, or error message if summarization fails
@@ -174,7 +174,7 @@ Summary:"""
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+            # temperature=0.3,
         )
 
         summary = result.choices[0].message.content.strip()
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Summarize SQL query results using RAG")
     parser.add_argument("question", help="Original natural language question")
-    parser.add_argument("--model", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", default="gpt-5-nano-2025-08-07", help="OpenAI model to use")
     args = parser.parse_args()
     
     # For CLI usage, would need to pass query results as JSON

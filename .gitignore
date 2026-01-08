@@ -38,3 +38,10 @@ logs/
 data/
 
 scratch/
+
+.claude/
+.gemini/
+.cursor/
+.devcontainer/
+.github/
+.pytest_cache/

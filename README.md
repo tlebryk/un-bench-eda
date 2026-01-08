@@ -440,6 +440,25 @@ docker-compose up postgres
 docker-compose up postgres_dev
 ```
 
+## Debugging
+
+### Tool Call Logging
+
+Tool calls (multistep RAG) are logged to `logs/multistep_tools.log` with detailed timing, arguments, and results.
+
+```bash
+# Watch tool calls in real-time
+make logs-tail
+
+# Or manually
+tail -f logs/multistep_tools.log
+
+# Check if tools are being called
+grep "TOOL CALL" logs/multistep_tools.log
+```
+
+Logs are persistent (mounted as Docker volumes) and include execution time, arguments, and result summaries for each tool call.
+
 ## Deployment (Render + Supabase)
 
 ### Setup
