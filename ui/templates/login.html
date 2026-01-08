@@ -1,51 +1,24 @@
-This is exactly the right approach. Trying to shoehorn a complex Bootstrap or Tailwind template into an existing Python/Jinja2 app often creates more bugs than it solves because you lose track of your data variables.
-
-I have rewritten your **`index.html`** completely.
-
-### What is different in this version?
-
-1. **"SaaS" Design System:** I replaced the academic/standard styling with a design system based on "Inter" font, lots of whitespace, soft shadows, and rounded corners (similar to the Hebbia image you shared).
-2. **The "Chat" Interface:** The search bar is now the focal point, styled like a modern AI input field.
-3. **Smart Table:** The results table is now contained in a scrollable card with "sticky" headers (the header stays put while you scroll data).
-4. **Interactive Elements:** The "View PDF" and "Read Text" links are now styled as distinct action badges rather than generic blue links.
-5. **Preserved Functionality:** All your Jinja2 logic (`{% if result %}`, etc.) and your Javascript logic (Summarization, Modals) is preserved but refactored to work with the new CSS classes.
-
-### Instructions
-
-1. **Backup:** Rename your current `templates/index.html` to `index_backup.html`.
-2. **Replace:** Create a new `templates/index.html` and paste the code below.
-3. **Run:** Refresh your Flask app.
-
-### The New `index.html`
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UNGA Research Tool</title>
-    
+    <title>Login - UNGA Research Tool</title>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
         :root {
-            /* Modern SaaS Palette */
-            --bg-body: #F3F4F6;       /* Cool Gray 100 */
+            --bg-body: #F3F4F6;
             --bg-card: #FFFFFF;
-            --text-main: #111827;     /* Cool Gray 900 */
-            --text-muted: #6B7280;    /* Cool Gray 500 */
-            --border-light: #E5E7EB;  /* Cool Gray 200 */
-            
-            --primary: #2563EB;       /* Blue 600 */
-            --primary-hover: #1D4ED8; /* Blue 700 */
-            --primary-light: #EFF6FF; /* Blue 50 */
-            
-            --success: #059669;
-            --success-bg: #ECFDF5;
-            
+            --text-main: #111827;
+            --text-muted: #6B7280;
+            --border-light: #E5E7EB;
+            --primary: #2563EB;
+            --primary-hover: #1D4ED8;
+            --primary-light: #EFF6FF;
             --radius: 12px;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
@@ -60,53 +33,54 @@ I have rewritten your **`index.html`** completely.
             padding: 0;
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
         }
 
-        /* Layout */
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem 1rem;
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
         }
 
-        header {
-            margin-bottom: 2rem;
-            text-align: center;
-        }
-        
-        h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin: 0;
-            letter-spacing: -0.025em;
-        }
-
-        /* Cards */
         .card {
             background: var(--bg-card);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
             border: 1px solid var(--border-light);
-            padding: 1.5rem;
+            padding: 2rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            letter-spacing: -0.025em;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            text-align: center;
             margin-bottom: 2rem;
+            font-size: 0.9rem;
         }
 
-        /* The Search Interface */
-        .search-area h2 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            margin-top: 0;
-            margin-bottom: 1rem;
+        .form-group {
+            margin-bottom: 1.5rem;
         }
 
-        .input-group {
-            position: relative;
-            display: flex;
-            gap: 0.5rem;
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
         }
 
-        input[type="text"] {
-            flex: 1;
+        input[type="password"] {
+            width: 100%;
             padding: 0.875rem 1rem;
             font-size: 1rem;
             border: 1px solid var(--border-light);
@@ -116,500 +90,61 @@ I have rewritten your **`index.html`** completely.
             font-family: inherit;
         }
 
-        input[type="text"]:focus {
+        input[type="password"]:focus {
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px var(--primary-light);
         }
 
-        /* Buttons */
         .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.6rem 1.25rem;
-            font-size: 0.95rem;
+            display: block;
+            width: 100%;
+            padding: 0.875rem 1.25rem;
+            font-size: 1rem;
             font-weight: 500;
             border-radius: 8px;
-            border: 1px solid transparent;
+            border: none;
             cursor: pointer;
             transition: all 0.2s;
-            text-decoration: none;
-        }
-
-        .btn-primary {
-            background-color: var(--text-main); /* Black style like standard AI tools */
+            background-color: var(--text-main);
             color: white;
         }
-        .btn-primary:hover { background-color: #000; }
 
-        .btn-secondary {
-            background-color: white;
-            border-color: var(--border-light);
-            color: var(--text-main);
-        }
-        .btn-secondary:hover { background-color: var(--bg-body); }
-
-        .btn-accent {
-            background-color: var(--primary);
-            color: white;
-        }
-        .btn-accent:hover { background-color: var(--primary-hover); }
-
-        /* Chips / Samples */
-        .chips-container {
-            margin-top: 1rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        
-        .chip {
-            background: var(--bg-body);
-            color: var(--text-muted);
-            padding: 0.375rem 0.75rem;
-            border-radius: 999px;
-            font-size: 0.85rem;
-            border: 1px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .chip:hover {
-            background: white;
-            border-color: var(--border-light);
-            color: var(--primary);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        .btn:hover {
+            background-color: #000;
         }
 
-        /* Results Area */
-        .results-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .error {
             margin-bottom: 1rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-light);
-        }
-
-        .stats-text {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-
-        /* Table Styling */
-        .table-wrapper {
-            overflow-x: auto;
-            border: 1px solid var(--border-light);
-            border-radius: 8px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-            white-space: nowrap; /* Prevent ugly wrapping initially */
-        }
-
-        th {
-            background: #F9FAFB;
-            color: var(--text-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
-            padding: 0.75rem 1rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border-light);
-        }
-
-        td {
             padding: 1rem;
-            border-bottom: 1px solid var(--border-light);
-            vertical-align: top;
-            max-width: 400px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background-color: #fafafa; }
-
-        /* Cell Content Styling */
-        td pre {
-            font-family: 'Inter', sans-serif; /* Override monospace for readability */
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        /* Action Badges in Table */
-        .action-row {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-
-        .badge-btn {
-            display: inline-flex;
-            align-items: center;
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-weight: 600;
-            text-decoration: none;
-            cursor: pointer;
-        }
-        
-        .badge-pdf { background: #fee2e2; color: #991b1b; } /* Red tint */
-        .badge-text { background: #e0e7ff; color: #3730a3; } /* Indigo tint */
-        
-        .badge-btn:hover { opacity: 0.8; }
-
-        /* Summarization Box */
-        .summary-box {
-            background: var(--success-bg);
-            border: 1px solid #A7F3D0;
+            background: #fee2e2;
+            color: #991b1b;
             border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            color: #064E3B;
-        }
-        .summary-box h3 { margin-top: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-
-        /* SQL Editor (Advanced) */
-        details.advanced-toggle {
-            margin-top: 2rem;
             font-size: 0.9rem;
-            color: var(--text-muted);
         }
-        details.advanced-toggle summary { cursor: pointer; margin-bottom: 0.5rem; }
-        
-        textarea.sql-editor {
-            width: 100%;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
-            padding: 1rem;
-            border: 1px solid var(--border-light);
-            border-radius: 8px;
-            background: #1e293b;
-            color: #e2e8f0;
-            min-height: 150px;
-        }
-
-        /* Modal Overlay */
-        .modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5);
-            backdrop-filter: blur(4px);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        .modal.active { display: flex; }
-        
-        .modal-content {
-            background: white;
-            width: 90%;
-            max-width: 800px;
-            max-height: 85vh;
-            border-radius: var(--radius);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        
-        .modal-header {
-            padding: 1rem 1.5rem;
-            border-bottom: 1px solid var(--border-light);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #F9FAFB;
-        }
-        
-        .modal-body {
-            padding: 1.5rem;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            line-height: 1.6;
-        }
-
-        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
-
-        /* Loading Spinner */
-        .loading-overlay {
-            position: fixed; inset: 0; background: rgba(255,255,255,0.9);
-            z-index: 2000;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .loading-overlay.active { display: flex; }
-        
-        .spinner {
-            width: 40px; height: 40px;
-            border: 3px solid var(--border-light);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-
     </style>
 </head>
 <body>
-
-    <div class="container">
-        <header>
-            <h1>UNGA Research Tool</h1>
-        </header>
-
-        <div class="card search-area">
-            <h2>Ask a question</h2>
-            <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading-message="Analyzing query...">
-                <div class="input-group">
-                    <input type="text" name="natural_language_query" 
-                           placeholder="e.g., Show me resolutions where USA voted against in 2023..." 
-                           value="{{ natural_language_query or '' }}" autocomplete="off">
-                    
-                    {% if not demo_mode %}
-                    <button type="submit" name="execute" value="false" class="btn btn-secondary">
-                        Draft SQL
-                    </button>
-                    {% endif %}
-                    
-                    <button type="submit" name="execute" value="true" class="btn btn-primary">
-                        Search
-                    </button>
-                </div>
-            </form>
-
-            {% if not demo_mode and samples %}
-            <div class="chips-container">
-                {% for sample in samples %}
-                <button type="button" class="chip" data-sql="{{ sample | e }}">
-                    {{ sample[:50] }}{% if sample|length > 50 %}...{% endif %}
-                </button>
-                {% endfor %}
-            </div>
-            {% endif %}
-            
-            {% if error %}
-            <div style="margin-top: 1rem; padding: 1rem; background: #fee2e2; color: #991b1b; border-radius: 8px;">
-                {{ error }}
-            </div>
-            {% endif %}
-        </div>
-
-        {% if result %}
+    <div class="login-container">
         <div class="card">
-            <div class="results-header">
-                <div>
-                    <span style="font-weight: 600; font-size: 1.1rem;">Results</span>
-                    <div class="stats-text">
-                        Found {{ result.row_count }} records
-                        {% if result.truncated %} (showing first {{ result.rows|length }}){% endif %}
-                    </div>
+            <h1>UNGA Research Tool</h1>
+            <p class="subtitle">Enter password to continue</p>
+
+            {% if error %}
+            <div class="error">{{ error }}</div>
+            {% endif %}
+
+            <form method="post" action="/login">
+                <input type="hidden" name="next" value="{{ next }}">
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autofocus>
                 </div>
-                <button id="summarize-btn" class="btn btn-accent" style="font-size: 0.85rem;">
-                    ✨ Summarize Results
-                </button>
-            </div>
 
-            <div id="summary-container" style="display: none;"></div>
-
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            {% for column in result.columns %}
-                            <th>{{ column.replace('_', ' ') }}</th>
-                            {% endfor %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in result.rows %}
-                        <tr>
-                            {% for column in result.columns %}
-                            {% set cell = row[column] %}
-                            <td>
-                                {% if cell.truncated %}
-                                <details>
-                                    <summary style="cursor: pointer; color: var(--primary);">{{ cell.display }}</summary>
-                                    <pre style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">{{ cell.full }}</pre>
-                                </details>
-                                {% else %}
-                                <span>{{ cell.display }}</span>
-                                {% endif %}
-
-                                {% if cell.long_text or cell.link %}
-                                <div class="action-row">
-                                    {% if cell.long_text %}
-                                    <button type="button" class="badge-btn badge-text text-expand-btn" 
-                                            data-full-text="{{ cell.long_text | e }}" 
-                                            data-column-name="{{ column }}">
-                                        Read Text
-                                    </button>
-                                    {% endif %}
-                                    {% if cell.link %}
-                                    <a href="{{ cell.link }}" target="_blank" rel="noopener" class="badge-btn badge-pdf">
-                                        View PDF ↗
-                                    </a>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                            </td>
-                            {% endfor %}
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% endif %}
-
-        {% if not demo_mode %}
-        <details class="advanced-toggle">
-            <summary>Advanced: Edit SQL Query</summary>
-            <div class="card" style="margin-top: 1rem;">
-                <form method="post" action="/" data-loading-message="Executing SQL...">
-                    <textarea name="sql_query" class="sql-editor" spellcheck="false">{{ sql_query }}</textarea>
-                    <div style="margin-top: 1rem; text-align: right;">
-                        <button type="submit" class="btn btn-secondary">Run Raw SQL</button>
-                    </div>
-                </form>
-            </div>
-        </details>
-        {% endif %}
-    </div>
-
-    <div id="text-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="text-modal-title" style="margin:0;">Full Text</h3>
-                <button type="button" class="close-btn" id="text-modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <pre id="text-modal-body" style="white-space: pre-wrap; font-family: inherit;"></pre>
-            </div>
+                <button type="submit" class="btn">Sign In</button>
+            </form>
         </div>
     </div>
-
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="spinner"></div>
-        <p class="loading-text" style="margin-top: 1rem; color: var(--text-muted); font-weight: 500;">Working...</p>
-    </div>
-
-    {% if result %}
-    <script type="application/json" id="result-data">{{ result | tojson | safe }}</script>
-    <script type="application/json" id="query-data">{{ sql_query | tojson | safe }}</script>
-    <script type="application/json" id="nl-query-data">{{ natural_language_query | tojson | safe }}</script>
-    {% endif %}
-
-    <script>
-        // --- 1. Chip / Sample Logic ---
-        document.querySelectorAll('.chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-                const sql = chip.dataset.sql;
-                const textarea = document.querySelector('textarea[name="sql_query"]');
-                const nlInput = document.querySelector('input[name="natural_language_query"]');
-                
-                // Simple heuristic: if it looks like SQL, put it in SQL box, else NL box
-                if (textarea && (sql.trim().toUpperCase().startsWith('SELECT') || sql.trim().toUpperCase().startsWith('WITH'))) {
-                    textarea.value = sql;
-                    textarea.closest('details').open = true;
-                    textarea.scrollIntoView({ behavior: 'smooth' });
-                } else if (nlInput) {
-                    nlInput.value = chip.textContent.trim();
-                    nlInput.focus();
-                }
-            });
-        });
-
-        // --- 2. Modal Logic ---
-        const modal = document.getElementById('text-modal');
-        const modalBody = document.getElementById('text-modal-body');
-        const modalTitle = document.getElementById('text-modal-title');
-        const closeBtn = document.getElementById('text-modal-close');
-
-        function openModal(text, title) {
-            modalBody.textContent = text;
-            modalTitle.textContent = title || "Document Text";
-            modal.classList.add('active');
-            document.body.style.overflow = 'hidden'; // Stop background scroll
-        }
-
-        function closeModal() {
-            modal.classList.remove('active');
-            document.body.style.overflow = '';
-        }
-
-        document.querySelectorAll('.text-expand-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                openModal(btn.dataset.fullText, btn.dataset.columnName);
-            });
-        });
-
-        closeBtn.addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => { if(e.target === modal) closeModal(); });
-        document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeModal(); });
-
-        // --- 3. Loading Overlay ---
-        const loader = document.getElementById('loading-overlay');
-        const loadText = loader.querySelector('.loading-text');
-
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', (e) => {
-                const msg = e.submitter ? e.submitter.dataset.loadingMessage : form.dataset.loadingMessage;
-                loadText.textContent = msg || "Processing...";
-                loader.classList.add('active');
-            });
-        });
-
-        // --- 4. Summarization Logic ---
-        const sumBtn = document.getElementById('summarize-btn');
-        if (sumBtn) {
-            sumBtn.addEventListener('click', async () => {
-                // Get data from hidden script tags
-                const resData = JSON.parse(document.getElementById('result-data').textContent);
-                const sqlData = JSON.parse(document.getElementById('query-data').textContent || '""');
-                const nlData = JSON.parse(document.getElementById('nl-query-data').textContent || '""');
-                const container = document.getElementById('summary-container');
-
-                // UI State: Loading
-                sumBtn.disabled = true;
-                sumBtn.innerHTML = "Processing...";
-                container.style.display = 'block';
-                container.innerHTML = '<div class="summary-box">Generating AI Summary...</div>';
-
-                try {
-                    const formData = new FormData();
-                    formData.append('sql_query', sqlData);
-                    formData.append('natural_language_query', nlData);
-                    formData.append('result_json', JSON.stringify(resData));
-
-                    const req = await fetch('/api/summarize', { method: 'POST', body: formData });
-                    const resp = await req.json();
-
-                    if (!req.ok) throw new Error(resp.error || "Failed");
-
-                    container.innerHTML = `
-                        <div class="summary-box">
-                            <h3>✨ AI Summary</h3>
-                            <div>${resp.summary.replace(/\n/g, '<br>')}</div>
-                        </div>
-                    `;
-                    sumBtn.innerHTML = "✅ Summarized";
-                } catch (err) {
-                    container.innerHTML = `<div class="summary-box" style="background:#fee2e2; border-color:#fecaca; color:#991b1b;">Error: ${err.message}</div>`;
-                    sumBtn.disabled = false;
-                    sumBtn.innerHTML = "Retry Summary";
-                }
-            });
-        }
-    </script>
 </body>
 </html>
