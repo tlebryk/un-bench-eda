@@ -1,0 +1,35 @@
+# Test queries for RAG Q&A evaluation
+
+queries:
+  - id: climate_plenary
+    question: "What was said about climate change in plenary meetings?"
+    expected_themes:
+      - "Nature-based solutions (forests)"
+      - "Cryosphere and glaciers"
+      - "Sea level rise"
+      - "Vulnerability of SIDS"
+
+  - id: france_climate
+    question: "What did France say about climate change in plenary meetings?"
+    expected_themes:
+      - "Glaciers and cryosphere"
+      - "Climate regulation"
+      - "Global warming mitigation"
+
+  - id: voting_patterns_78_220
+    question: "Which countries voted against resolution A/RES/78/220?"
+    expected_type: "List of countries"
+
+  - id: sea_level_rise_discussion
+    question: "What was discussed about sea level rise?"
+    expected_themes:
+      - "Threat to island nations"
+      - "Need for urgent action"
+      - "Paris Agreement commitments"
+
+  - id: forest_resolution
+    question: "What was the main focus of the forests resolution?"
+    expected_themes:
+      - "Nature-based solutions"
+      - "Climate change mitigation"
+      - "Biodiversity"
