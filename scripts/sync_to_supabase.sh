@@ -40,7 +40,7 @@ echo "  Database: $PGDATABASE"
 # Step 1: Ensure Docker is running
 echo ""
 echo "🐳 Step 1: Starting local database..."
-docker-compose up -d
+docker-compose up -d postgres
 
 # Wait a moment for DB to be ready
 sleep 2

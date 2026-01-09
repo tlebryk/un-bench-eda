@@ -4,7 +4,7 @@ set -euo pipefail
 
 # docker-compose down
 docker-compose up -d postgres
-docker exec -T postgres pg_dump \
+docker exec -T un_documents_db pg_dump \
     -U un_user \
     -d un_documents \
     --no-owner \

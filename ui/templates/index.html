@@ -22,22 +22,18 @@
             <h2>Ask a question about UN resolutions</h2>
             
             <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading="Analyzing query...">
+                <input type="hidden" name="execute" value="true">
                 <div class="search-input-group">
                     <input type="text" name="natural_language_query" 
                            placeholder="e.g. Show me resolutions voted against by the USA in 2023..." 
                            value="{{ natural_language_query or '' }}" autocomplete="off">
                     
-                    {% if not demo_mode %}
-                    <button type="submit" name="execute" value="false" class="btn btn-secondary">
-                        Draft SQL
-                    </button>
-                    {% endif %}
-                    
-                    <button type="submit" name="execute" value="true" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         Search
                     </button>
                 </div>
             </form>
+            <p class="helper-text">Need to refine SQL? Run a search, then use the Advanced: Edit SQL panel below.</p>
 
             {% if demo_mode and demo_questions %}
             <div class="chips-row">
@@ -140,7 +136,7 @@
             <div id="answer-container" style="display: none;"></div>
 
             <div class="table-container">
-                <table>
+                <table class="results-table">
                     <thead>
                         <tr>
                             {% for column in result.columns %}
@@ -154,14 +150,16 @@
                             {% for column in result.columns %}
                             {% set cell = row[column] %}
                             <td>
-                                {% if cell.truncated %}
-                                <details>
-                                    <summary>{{ cell.display }}</summary>
-                                    <pre>{{ cell.full }}</pre>
-                                </details>
-                                {% else %}
-                                {{ cell.display }}
-                                {% endif %}
+                                <div class="cell-value">
+                                    {% if cell.truncated %}
+                                    <details>
+                                        <summary>{{ cell.display }}</summary>
+                                        <pre>{{ cell.full }}</pre>
+                                    </details>
+                                    {% else %}
+                                    {{ cell.display }}
+                                    {% endif %}
+                                </div>
 
                                 {% if cell.long_text or cell.link %}
                                 <div class="actions">

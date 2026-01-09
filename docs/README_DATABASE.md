@@ -544,7 +544,79 @@ Edit `.env` to change database connection:
 
 ```
 DATABASE_URL=postgresql://un_user:un_password@localhost:5432/un_documents
+APP_DATABASE_URL=postgresql://un_app_user:password@localhost:5432/un_documents
 DATA_ROOT=/Users/theolebryk/projects/un_draft/data
+```
+
+---
+
+## Database Security (Read-Only User)
+
+For production deployments, use separate database credentials for queries vs. setup/migrations. This implements defense-in-depth security.
+
+### Setup Read-Only User
+
+```bash
+# Run the setup script (requires admin DATABASE_URL)
+uv run python db/setup_readonly_user.py
+
+# Or manually run the SQL file
+psql $DATABASE_URL -f db/setup_readonly_user.sql
+```
+
+This creates:
+- `un_app_readonly` role with SELECT-only permissions
+- `un_app_user` with the read-only role assigned
+
+### Configure Application
+
+Add to `.env`:
+```
+# Admin user (for setup_db.py and migrations)
+DATABASE_URL=postgresql://un_user:admin_password@localhost:5432/un_documents
+
+# Read-only user (for application queries)
+APP_DATABASE_URL=postgresql://un_app_user:readonly_password@localhost:5432/un_documents
+```
+
+The application will automatically use `APP_DATABASE_URL` for queries, providing:
+- Protection against accidental writes
+- Protection against SQL injection leading to data modification
+- Compliance with principle of least privilege
+
+### Using in Code
+
+```python
+from db.config import get_session, get_admin_session
+
+# Read-only session (uses APP_DATABASE_URL if set)
+session = get_session()
+results = session.query(Document).all()  # ✅ Works
+
+# Admin session (uses DATABASE_URL, for setup only)
+admin_session = get_admin_session()
+new_doc = Document(symbol='A/RES/78/220')
+admin_session.add(new_doc)  # ✅ Works (admin has write permissions)
+admin_session.commit()
+```
+
+### Validation Layers
+
+The system provides multiple layers of validation:
+
+1. **Application-level** (text_to_sql.py): Blocks INSERT/UPDATE/DELETE/DROP keywords
+2. **Database-level**: Read-only user can only SELECT
+3. **Connection-level**: Separate credentials for queries vs. setup
+
+### Testing Read-Only Permissions
+
+```bash
+# Should work (SELECT)
+psql $APP_DATABASE_URL -c "SELECT COUNT(*) FROM documents;"
+
+# Should fail (INSERT)
+psql $APP_DATABASE_URL -c "INSERT INTO documents (symbol) VALUES ('test');"
+# Error: permission denied for table documents
 ```
 
 ---

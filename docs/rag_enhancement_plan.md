@@ -36,7 +36,7 @@
 The tooling referenced below already ships in the repo and should be treated as the starting point for any new work:
 
 - **Tool suite** – `rag/multistep/tools.py` declares JSON schemas for `get_related_documents`, `get_votes`, `get_utterances`, and `answer_with_evidence`. Each helper has a matching executor that runs directly against PostgreSQL via SQLAlchemy.
-- **Orchestrator** – `rag/multistep/orchestrator.py` calls the OpenAI Responses API (`client.responses.create`) with the `gpt-5-nano-2025-08-07` model, loops up to six tool invocations, and logs every step to `logs/multistep_tools.log` before delegating to `rag.rag_qa.answer_question()`.
+- **Orchestrator** – `rag/multistep/orchestrator.py` calls the OpenAI Responses API (`client.responses.create`) with the `gpt-5-mini-2025-08-07` model, loops up to six tool invocations, and logs every step to `logs/multistep_tools.log` before delegating to `rag.rag_qa.answer_question()`.
 - **Genealogy via SQL** – `execute_get_related_documents()` uses a recursive CTE to traverse `document_relationships` in both directions, grouping outputs into meetings, drafts, committee reports, and agenda items so subsequent tools (utterances, votes) know what to fetch. The query lives alongside the executor for quick reference:
   ```sql
   WITH RECURSIVE related_docs AS (
@@ -84,7 +84,7 @@ def answer_question(
     query_results: Dict[str, Any],
     original_question: str,
     sql_query: str,
-    model: str = "gpt-5-nano-2025-08-07"  # Matches orchestrator + current SDK support
+    model: str = "gpt-5-mini-2025-08-07"  # Matches orchestrator + current SDK support
 ) -> Dict[str, Any]:
     """
     Returns:

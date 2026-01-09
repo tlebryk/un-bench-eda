@@ -40,6 +40,21 @@ result = session.execute(text("SELECT COUNT(*) FROM document_relationships;"))
 rel_count = result.scalar()
 print(f"🔗 Relationships: {rel_count}")
 
+# Check subjects
+result = session.execute(text("SELECT COUNT(*) FROM subjects;"))
+subj_count = result.scalar()
+print(f"🏷️  Subjects: {subj_count}")
+
+# Check document-subject links
+result = session.execute(text("SELECT COUNT(*) FROM document_subjects;"))
+ds_count = result.scalar()
+print(f"📑 Subject Links: {ds_count}")
+
+# Check sponsorships
+result = session.execute(text("SELECT COUNT(*) FROM sponsorships;"))
+spon_count = result.scalar()
+print(f"🤝 Sponsorships: {spon_count}")
+
 # Check utterances
 result = session.execute(text("SELECT COUNT(*) FROM utterances;"))
 utt_count = result.scalar()

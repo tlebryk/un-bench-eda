@@ -82,6 +82,12 @@ h1 {
     gap: 0.75rem;
 }
 
+.helper-text {
+    margin-top: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
 input[type="text"] {
     flex: 1;
     padding: 1rem 1.25rem;
@@ -179,20 +185,35 @@ input[type="text"]:focus {
     overflow-x: auto;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
+    max-width: 100%;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
-    white-space: nowrap;
+}
+
+.results-table {
+    table-layout: auto;
+    width: max-content; /* Allow table to expand based on content */
+}
+
+.results-table th,
+.results-table td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 150px; /* Minimum width to force horizontal scroll */
+    max-width: 800px; /* Maximum width - allows up to 2/3 of screen */
+    padding: 0.75rem 1rem;
 }
 
 th {
     text-align: left;
     background: #F9FAFB;
-    padding: 0.75rem 1.5rem;
-    font-size: 0.75rem;
+    padding: 0.75rem 0.5rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-secondary);
@@ -200,10 +221,17 @@ th {
 }
 
 td {
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 0.5rem;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
     vertical-align: top;
+}
+
+.cell-value {
+    display: block;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 100%;
 }
 
 tr:last-child td { border-bottom: none; }
@@ -218,6 +246,7 @@ pre { margin: 0.5rem 0 0; font-family: inherit; white-space: pre-wrap; color: va
     display: flex;
     gap: 0.5rem;
     margin-top: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .badge {
