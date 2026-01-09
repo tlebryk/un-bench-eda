@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List, Optional
 import logging
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,87 @@ def execute_get_utterances(
         session.close()
 
 
-# Tool 4: Answer With Evidence
+# Tool 4: Execute SQL Query
+
+def execute_sql_query_tool() -> Dict[str, Any]:
+    """Execute a SQL query to search for documents, votes, or other data."""
+    return {
+        "type": "function",
+        "name": "execute_sql_query",
+        "description": "Execute a SQL query to find documents, votes, utterances, or other data matching specific criteria. Use this when you need to search or discover documents without knowing specific symbols. Returns structured results with columns and rows. Examples: finding resolutions where countries voted differently, searching by topic/keywords, analyzing voting patterns.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "natural_language_query": {
+                    "type": "string",
+                    "description": "Natural language description of what data you want to query. Examples: 'Find resolutions where China voted against and US voted in favour', 'Find meetings about climate change in session 78', 'Which countries most often vote against human rights resolutions'"
+                }
+            },
+            "required": ["natural_language_query"]
+        }
+    }
+
+
+def execute_execute_sql_query(natural_language_query: str) -> Dict[str, Any]:
+    """
+    Execute SQL query using text-to-sql system.
+
+    Args:
+        natural_language_query: Natural language description of what to query
+
+    Returns:
+        Dict with columns, rows, and row_count
+    """
+    from rag.text_to_sql import generate_sql
+    from db.config import engine
+
+    try:
+        logger.info(f"Executing SQL query: {natural_language_query}")
+
+        # Generate SQL from natural language
+        sql_query = generate_sql(natural_language_query)
+        logger.info(f"Generated SQL: {sql_query}")
+
+        # Execute query
+        with engine.connect() as connection:
+            result = connection.execute(text(sql_query))
+            columns = list(result.keys())
+            rows = result.fetchall()
+
+        # Convert rows to list of dicts
+        row_dicts = []
+        for row in rows[:100]:  # Limit to 100 rows for performance
+            row_dict = {}
+            for col in columns:
+                value = row._mapping.get(col)
+                # Convert to string for JSON serialization
+                if value is not None:
+                    row_dict[col] = str(value)
+                else:
+                    row_dict[col] = None
+            row_dicts.append(row_dict)
+
+        logger.info(f"SQL query returned {len(rows)} rows")
+
+        return {
+            "columns": columns,
+            "rows": row_dicts,
+            "row_count": len(rows),
+            "sql_query": sql_query,
+            "truncated": len(rows) > 100
+        }
+
+    except Exception as e:
+        logger.error(f"SQL query execution failed: {e}", exc_info=True)
+        return {
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "error": str(e)
+        }
+
+
+# Tool 5: Answer With Evidence
 
 def answer_with_evidence_tool() -> Dict[str, Any]:
     """Synthesize final answer from gathered evidence."""

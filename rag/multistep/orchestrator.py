@@ -10,6 +10,7 @@ from rag.multistep.tools import (
     get_related_documents_tool, execute_get_related_documents,
     get_votes_tool, execute_get_votes,
     get_utterances_tool, execute_get_utterances,
+    execute_sql_query_tool, execute_execute_sql_query,
     answer_with_evidence_tool
 )
 from rag.multistep.prompts import MULTISTEP_SYSTEM_PROMPT
@@ -34,6 +35,7 @@ class MultiStepOrchestrator:
 
         # Tool definitions
         self.tools = [
+            execute_sql_query_tool(),
             get_related_documents_tool(),
             get_votes_tool(),
             get_utterances_tool(),
@@ -42,6 +44,7 @@ class MultiStepOrchestrator:
 
         # Tool executors
         self.executors = {
+            "execute_sql_query": execute_execute_sql_query,
             "get_related_documents": execute_get_related_documents,
             "get_votes": execute_get_votes,
             "get_utterances": execute_get_utterances,
@@ -97,11 +100,11 @@ class MultiStepOrchestrator:
 
                 # Check for function calls
                 has_function_call = False
-                
+
                 # Iterate through output items to find function calls
                 # response.output is a list of items (Message, FunctionCall, etc.)
                 for item in response.output:
-                    if item.type == "function_call":
+                    if hasattr(item, 'type') and item.type == "function_call":
                         has_function_call = True
                         tool_name = item.name
                         arguments = json.loads(item.arguments)
@@ -113,12 +116,15 @@ class MultiStepOrchestrator:
                         # Check if ready to answer
                         if tool_name == "answer_with_evidence":
                             logger.info("✅ Model indicated ready to synthesize answer")
-                            # We break the inner loop (items) and the outer loop (steps)
-                            # by setting a flag or break
-                            # Ideally we want to process all calls in this turn (if parallel)
-                            # but usually answer_with_evidence is the end.
-                            # We'll just break the outer loop after processing this item
-                            pass
+                            # Add dummy output to satisfy API requirements
+                            input_list.append({
+                                "type": "function_call_output",
+                                "call_id": item.call_id,
+                                "output": json.dumps({"ready": True})
+                            })
+                            logger.info(f"{'='*60}\n")
+                            # Break immediately - we're done gathering evidence
+                            break
 
                         if tool_name in self.executors:
                             # Execute tool
@@ -155,16 +161,21 @@ class MultiStepOrchestrator:
 
                         logger.info(f"{'='*60}\n")
 
-                        if tool_name == "answer_with_evidence":
-                            # Break the step loop
-                            break
-                
-                # Check if we should exit the loop
-                # If we found answer_with_evidence, we are done
-                last_tool = steps_taken[-1]["tool"] if steps_taken else None
-                if last_tool == "answer_with_evidence":
+                # Check if we should exit the outer loop
+                # If the last output item processed was answer_with_evidence, we're done
+                if has_function_call:
+                    # Check if any function call was answer_with_evidence
+                    for item in response.output:
+                        if hasattr(item, 'type') and item.type == "function_call":
+                            if item.name == "answer_with_evidence":
+                                logger.info("🏁 Exiting orchestrator loop - ready to synthesize")
+                                break
+                    else:
+                        # No answer_with_evidence found, continue
+                        continue
+                    # If we didn't continue, we break the outer loop
                     break
-                    
+
                 # If model didn't call any function, it might be confused or trying to talk
                 # In responses API, if it returns text message, it's also in output
                 if not has_function_call:
@@ -235,7 +246,12 @@ class MultiStepOrchestrator:
         if "error" in result:
             return f"ERROR: {result['error']}"
 
-        if tool_name == "get_related_documents":
+        if tool_name == "execute_sql_query":
+            row_count = result.get("row_count", 0)
+            truncated = result.get("truncated", False)
+            return f"Found {row_count} rows{' (truncated to 100)' if truncated else ''}"
+
+        elif tool_name == "get_related_documents":
             return (f"Found {len(result.get('meetings', []))} meetings, "
                    f"{len(result.get('drafts', []))} drafts, "
                    f"{len(result.get('committee_reports', []))} reports, "
@@ -260,6 +276,13 @@ class MultiStepOrchestrator:
     def _format_evidence_for_answer(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         """Convert tool outputs to query_results format expected by rag_qa."""
         rows = []
+
+        # Add SQL query results (already in rows format)
+        if "execute_sql_query" in evidence:
+            sql_result = evidence["execute_sql_query"]
+            # SQL results are already in the right format
+            for row in sql_result.get("rows", []):
+                rows.append(row)
 
         # Add vote evidence
         if "get_votes" in evidence:

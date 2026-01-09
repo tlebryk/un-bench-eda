@@ -20,20 +20,35 @@
 
         <div class="card search-wrapper">
             <h2>Ask a question about UN resolutions</h2>
-            
-            <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading="Analyzing query...">
+
+            <form method="post" action="/text-to-sql{% if demo_mode %}?demo=true{% endif %}" data-loading="Analyzing query..." id="search-form">
                 <input type="hidden" name="execute" value="true">
                 <div class="search-input-group">
-                    <input type="text" name="natural_language_query" 
-                           placeholder="e.g. Show me resolutions voted against by the USA in 2023..." 
+                    <input type="text" name="natural_language_query"
+                           placeholder="e.g. Show me resolutions voted against by the USA in 2023..."
                            value="{{ natural_language_query or '' }}" autocomplete="off">
-                    
+
                     <button type="submit" class="btn btn-primary">
                         Search
                     </button>
                 </div>
+
+                <!-- RAG Mode Selector -->
+                <div style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
+                    <span style="font-weight: 500; font-size: 0.9rem; color: var(--text-secondary);">Research Mode:</span>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="rag_mode" value="simple" checked>
+                        <span style="font-size: 0.9rem;">⚡ Quick Answer</span>
+                        <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(Single query)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="rag_mode" value="multistep">
+                        <span style="font-size: 0.9rem;">🔬 Deep Research</span>
+                        <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(Multi-step exploration)</span>
+                    </label>
+                </div>
             </form>
-            <p class="helper-text">Need to refine SQL? Run a search, then use the Advanced: Edit SQL panel below.</p>
+            <p class="helper-text">Quick Answer: Direct SQL query. Deep Research: AI agent explores multiple sources step-by-step.</p>
 
             {% if demo_mode and demo_questions %}
             <div class="chips-row">
@@ -67,13 +82,46 @@
             <div class="rag-answer-content" style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem; white-space: pre-wrap;">
                 {{ rag_answer.answer }}
             </div>
-            
+
+            {% if rag_answer.steps %}
+            <details style="margin-top: 1rem; margin-bottom: 1rem;">
+                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">🔬 Research Steps ({{ rag_answer.steps|length }})</summary>
+                <div style="margin-top: 0.5rem;">
+                    {% for step in rag_answer.steps %}
+                    <div style="padding: 0.75rem; background: white; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #10b981;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                            <strong style="color: #059669;">{{ loop.index }}. {{ step.tool }}</strong>
+                            <span style="font-size: 0.85rem; color: var(--text-secondary);">{{ "%.2f"|format(step.execution_time) }}s</span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                            <strong>Arguments:</strong> {{ step.arguments | tojson }}
+                        </div>
+                        {% if step.result and not step.result.error %}
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            <strong>Result:</strong>
+                            {% if step.tool == 'get_votes' %}
+                                {{ step.result.total_countries }} countries voted
+                            {% elif step.tool == 'get_utterances' %}
+                                {{ step.result.count }} statements found
+                            {% elif step.tool == 'get_related_documents' %}
+                                {{ (step.result.meetings|length) + (step.result.drafts|length) + (step.result.committee_reports|length) }} related documents
+                            {% else %}
+                                {{ step.result | tojson }}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+
             {% if rag_answer.sources %}
             <details style="margin-top: 1rem;">
                 <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Sources ({{ rag_answer.sources|length }})</summary>
                 <div style="margin-top: 0.5rem;">
                     {% for source in rag_answer.sources %}
-                    <span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block; cursor: pointer;" 
+                    <span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block; cursor: pointer;"
                           onclick="window.open('https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=' + encodeURIComponent('{{ source }}'), '_blank')">
                         {{ source }}
                     </span>
@@ -238,6 +286,23 @@
     {% endif %}
 
     <script>
+        // 0. Route form based on RAG mode
+        const searchForm = document.getElementById('search-form');
+        if (searchForm) {
+            searchForm.addEventListener('submit', (e) => {
+                const ragMode = document.querySelector('input[name="rag_mode"]:checked')?.value || 'simple';
+                const demoParam = searchForm.action.includes('?demo=true') ? '?demo=true' : '';
+
+                if (ragMode === 'multistep') {
+                    // Route to multi-step orchestrator
+                    searchForm.action = '/multistep-answer' + demoParam;
+                } else {
+                    // Route to simple text-to-sql
+                    searchForm.action = '/text-to-sql' + demoParam;
+                }
+            });
+        }
+
         // 1. Handling Demo Question Chips
         document.querySelectorAll('.demo-question-chip').forEach(btn => {
             btn.addEventListener('click', () => {

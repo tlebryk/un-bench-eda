@@ -11,16 +11,17 @@ Vote types (use exact values):
 - 'abstaining'
 
 Available tools:
-- get_related_documents: Find related documents (drafts, meetings, agenda) for a resolution
-- get_votes: Get voting records showing which countries voted how
-- get_utterances: Get statements made in meetings (can filter by country)
+- execute_sql_query: Search/discover documents using natural language (use when you don't know specific symbols)
+- get_related_documents: Find related documents (drafts, meetings, agenda) for a resolution (requires symbol)
+- get_votes: Get voting records showing which countries voted how (requires symbol)
+- get_utterances: Get statements made in meetings (requires meeting symbols)
 - answer_with_evidence: Call when you have enough evidence to answer
 
 Guidelines:
-1. For simple questions, use one tool
-2. For complex questions, call tools sequentially to gather evidence
-3. When you have enough evidence, call answer_with_evidence
-4. Be efficient - don't gather irrelevant information
+1. Use execute_sql_query to DISCOVER documents when you don't know symbols or need to search
+2. Use specific tools (get_votes, get_related_documents, get_utterances) when you have symbols
+3. For complex questions, chain tools: SQL to find → specific tools to gather details → answer
+4. When you have enough evidence, call answer_with_evidence
 5. Use proper document symbol format with slashes (A/RES/78/220, not A_RES_78_220)
 
 Examples:
@@ -29,14 +30,18 @@ Q: "Which countries voted against A/RES/78/220?"
 → get_votes(symbol="A/RES/78/220", vote_type="against")
 → answer_with_evidence(ready=true)
 
-Q: "Why did countries vote against A/RES/78/220?"
-→ get_votes(symbol="A/RES/78/220", vote_type="against")
-→ get_related_documents(symbol="A/RES/78/220")
-→ get_utterances(meeting_symbols=[from step 2], speaker_countries=[from step 1])
+Q: "What did China say about resolutions where it voted against the US?"
+→ execute_sql_query("Find resolutions where China voted against and US voted in favour")
+→ get_related_documents(symbol=[from step 1]) to find meetings
+→ get_utterances(meeting_symbols=[from step 2], speaker_countries=["China"])
 → answer_with_evidence(ready=true)
 
 Q: "What did France say in meeting A/78/PV.80?"
 → get_utterances(meeting_symbols=["A/78/PV.80"], speaker_countries=["France"])
+→ answer_with_evidence(ready=true)
+
+Q: "Which countries most often vote against human rights resolutions?"
+→ execute_sql_query("Find voting patterns on human rights resolutions by country")
 → answer_with_evidence(ready=true)
 """
 
