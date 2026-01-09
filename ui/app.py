@@ -454,7 +454,7 @@ def logout_get(next: str = "/"):
 
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def home(request: Request):
-    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    demo_mode = request.query_params.get("demo", "true").lower() == "true"
     return templates.TemplateResponse(
         "index.html",
         {
@@ -473,7 +473,7 @@ def home(request: Request):
 
 @app.post("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def run_query(request: Request, sql_query: str = Form(...)):
-    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    demo_mode = request.query_params.get("demo", "true").lower() == "true"
     sql_query = sql_query.strip()
     logger.info(f"Direct SQL query: {sql_query}")
     
@@ -583,7 +583,7 @@ def rag_answer_query(
     result_json: str = Form(None)
 ):
     """Answer a question using RAG with evidence grounding (HTML response)."""
-    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    demo_mode = request.query_params.get("demo", "true").lower() == "true"
     
     try:
         result = None
@@ -789,7 +789,7 @@ def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Fo
 @app.post("/text-to-sql", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def text_to_sql_query(request: Request, natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL and optionally execute it."""
-    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    demo_mode = request.query_params.get("demo", "true").lower() == "true"
     if not natural_language_query:
         return templates.TemplateResponse(
             "index.html",
@@ -1067,7 +1067,7 @@ def multistep_answer_html(request: Request, natural_language_query: str = Form(.
     """HTML version of multi-step RAG."""
     from rag.multistep.orchestrator import MultiStepOrchestrator
 
-    demo_mode = request.query_params.get("demo", "false").lower() == "true"
+    demo_mode = request.query_params.get("demo", "true").lower() == "true"
 
     try:
         orchestrator = MultiStepOrchestrator()
