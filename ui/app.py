@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
 import secrets
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Set, Optional
 import re
 from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, Request, HTTPException, status, Depends
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -27,19 +29,8 @@ from rag.rag_summarize import summarize_results
 from rag.rag_qa import answer_question
 
 # Set up logging
-LOG_DIR = Path(__file__).parent.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "app.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+from utils.logging_config import get_logger
+logger = get_logger(__name__, log_file="app.log")
 
 # Log connection status on startup
 if is_supabase and not USE_DEV_DB:
@@ -346,7 +337,7 @@ def is_query_allowed(sql_query: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def execute_sql(sql_query: str) -> Dict[str, Any]:
+def execute_sql(sql_query: str, include_raw_rows: bool = False) -> Dict[str, Any]:
     """Execute raw SQL and return structured results."""
     with engine.connect() as connection:
         result = connection.execute(text(sql_query))
@@ -377,12 +368,17 @@ def execute_sql(sql_query: str) -> Dict[str, Any]:
     annotate_document_links(formatted_rows, raw_rows)
 
     truncated = len(rows) > MAX_ROWS
-    return {
+    result_payload = {
         "columns": columns,
         "rows": formatted_rows,
         "row_count": len(rows),
         "truncated": truncated,
     }
+
+    if include_raw_rows:
+        result_payload["raw_rows"] = raw_rows
+
+    return result_payload
 
 
 @app.get("/healthz")
@@ -530,6 +526,53 @@ def run_query(request: Request, sql_query: str = Form(...)):
             },
             status_code=400,
         )
+
+
+@app.post("/download-results", dependencies=[Depends(require_auth)])
+def download_results(sql_query: str = Form(...)):
+    """Run a SQL query again and stream the results as CSV."""
+    query = (sql_query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="sql_query field is required")
+
+    allowed, message = is_query_allowed(query)
+    if not allowed:
+        raise HTTPException(status_code=400, detail=message)
+
+    try:
+        result = execute_sql(query, include_raw_rows=True)
+    except SQLAlchemyError as exc:
+        logger.error(f"CSV download failed: {str(exc)}")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    columns = result.get("columns") or []
+    raw_rows = result.get("raw_rows") or []
+    if not columns:
+        raise HTTPException(status_code=400, detail="Query returned no columns")
+
+    def csv_rows():
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(columns)
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+
+        for row in raw_rows:
+            values = []
+            for column in columns:
+                value = row.get(column)
+                values.append("" if value is None else value)
+            writer.writerow(values)
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+    filename = f"query-results-{timestamp}.csv"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    logger.info(f"Download CSV requested - Rows returned: {len(raw_rows)}")
+    return StreamingResponse(csv_rows(), media_type="text/csv", headers=headers)
 
 
 @app.post("/rag-answer", response_class=HTMLResponse, dependencies=[Depends(require_auth)])

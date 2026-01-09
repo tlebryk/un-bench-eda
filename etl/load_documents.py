@@ -228,6 +228,7 @@ class DocumentLoader(BaseLoader):
             if existing_doc.doc_type != self.doc_type:
                 existing_doc.doc_type = self.doc_type
 
+            self._process_metadata_enrichment(existing_doc, data)
             self.stats["loaded"] += 1
         else:
             # Create new document
@@ -244,6 +245,7 @@ class DocumentLoader(BaseLoader):
             try:
                 self.session.add(doc)
                 self.session.flush()
+                self._process_metadata_enrichment(doc, data)
                 self.stats["loaded"] += 1
             except Exception as e:
                 self.session.rollback()

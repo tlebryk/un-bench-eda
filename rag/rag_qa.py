@@ -16,19 +16,8 @@ from db.models import Document, Actor, Vote, Utterance, DocumentRelationship
 load_dotenv()
 
 # Set up logging
-LOG_DIR = Path(__file__).parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "rag_qa.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+from utils.logging_config import get_logger
+logger = get_logger(__name__, log_file="rag_qa.log")
 
 # OpenAI client will be initialized lazily when needed
 _client = None

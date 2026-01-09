@@ -14,24 +14,9 @@ from rag.multistep.tools import (
 )
 from rag.multistep.prompts import MULTISTEP_SYSTEM_PROMPT
 
-# Set up dedicated logger for multistep tool calls
-logger = logging.getLogger(__name__)
-
-# Add file handler for multistep logs (in addition to root logger)
-# Write to project root logs/ directory (consistent with app.log, text_to_sql.log, etc.)
-LOG_DIR = Path(__file__).parent.parent.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-MULTISTEP_LOG = LOG_DIR / "multistep_tools.log"
-
-# Only add file handler if it doesn't exist yet
-if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(MULTISTEP_LOG)
-           for h in logger.handlers):
-    file_handler = logging.FileHandler(MULTISTEP_LOG)
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    ))
-    logger.addHandler(file_handler)
-    logger.setLevel(logging.INFO)
+# Set up logging
+from utils.logging_config import get_logger
+logger = get_logger(__name__, log_file="multistep_tools.log")
 
 
 class MultiStepOrchestrator:

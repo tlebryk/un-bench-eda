@@ -38,6 +38,8 @@ class Document(Base):
     )
     utterances = relationship("Utterance", foreign_keys="Utterance.meeting_id", cascade="all, delete-orphan")
     referenced_in_utterances = relationship("UtteranceDocument", foreign_keys="UtteranceDocument.document_id", cascade="all, delete-orphan")
+    subjects = relationship("Subject", secondary="document_subjects", back_populates="documents")
+    sponsorships = relationship("Sponsorship", back_populates="document", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Document(symbol='{self.symbol}', type='{self.doc_type}')>"
@@ -55,6 +57,7 @@ class Actor(Base):
     # Relationships
     votes = relationship("Vote", back_populates="actor")
     utterances = relationship("Utterance", foreign_keys="Utterance.speaker_actor_id")
+    sponsorships = relationship("Sponsorship", back_populates="actor")
 
     def __repr__(self):
         return f"<Actor(name='{self.name}', type='{self.actor_type}')>"
@@ -156,3 +159,43 @@ class UtteranceDocument(Base):
 
     def __repr__(self):
         return f"<UtteranceDocument(utterance_id={self.utterance_id}, document_id={self.document_id})>"
+
+
+class Subject(Base):
+    """Document subjects/topics"""
+    __tablename__ = 'subjects'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+
+    # Relationships
+    documents = relationship("Document", secondary="document_subjects", back_populates="subjects")
+
+    def __repr__(self):
+        return f"<Subject(name='{self.name}')>"
+
+
+class DocumentSubject(Base):
+    """Junction table for Document <-> Subject"""
+    __tablename__ = 'document_subjects'
+
+    document_id = Column(Integer, ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True)
+    subject_id = Column(Integer, ForeignKey('subjects.id', ondelete='CASCADE'), primary_key=True)
+
+
+class Sponsorship(Base):
+    """Sponsorship of documents by actors"""
+    __tablename__ = 'sponsorships'
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey('documents.id', ondelete='CASCADE'), nullable=False, index=True)
+    actor_id = Column(Integer, ForeignKey('actors.id', ondelete='CASCADE'), nullable=False, index=True)
+    sponsorship_type = Column(String)  # 'initial' or 'additional'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    document = relationship("Document", back_populates="sponsorships")
+    actor = relationship("Actor", back_populates="sponsorships")
+
+    def __repr__(self):
+        return f"<Sponsorship(doc={self.document_id}, actor={self.actor_id}, type='{self.sponsorship_type}')>"

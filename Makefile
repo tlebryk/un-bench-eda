@@ -1,4 +1,4 @@
-.PHONY: help install install-etl install-training install-all dev clean
+.PHONY: help install install-etl install-training install-all dev clean shell
 
 # Default target
 help:
@@ -29,6 +29,7 @@ help:
 	@echo "  make docker-reload    - Start Docker UI with hot reload (production DB)"
 	@echo "  make docker-reload-dev-db - Start Docker UI with hot reload (dev DB)"
 	@echo "  make docker-down      - Stop Docker services"
+	@echo "  make shell            - Launch interactive shell in the UI container"
 	@echo ""
 	@echo "Database commands:"
 	@echo "  make db-setup         - Setup production database"
@@ -116,6 +117,9 @@ docker-logs:
 docker-logs-reload:
 	docker-compose logs -f ui_reload
 
+shell:
+	docker-compose run --rm --service-ports --entrypoint /bin/bash ui_reload
+
 # Logging commands
 logs-tail:
 	@echo "📊 Tailing multistep tool logs..."
@@ -144,4 +148,3 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	find . -type f -name "*.pyo" -delete 2>/dev/null || true
 	find . -type d -name "*.egg-info" -exec rm -r {} + 2>/dev/null || true
-

@@ -144,6 +144,8 @@ class ResolutionLoader(BaseLoader):
         try:
             self.session.add(doc)
             self.session.flush()  # Get doc.id
+            
+            self._process_metadata_enrichment(doc, data)
 
             # Load voting
             voting = data.get("voting", {})

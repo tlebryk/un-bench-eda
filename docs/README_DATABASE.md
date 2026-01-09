@@ -179,6 +179,9 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 - **votes** – roll-call data from committee/plenary stages; keyed to both `documents` and `actors`.
 - **utterances** – parsed statements from plenary meetings and committee summary records with speaker metadata.
 - **utterance_documents** – many-to-many helper that ties utterances to the specific drafts/resolutions they reference (`reference_type='voting_on'`, `mentioned`, etc.).
+- **subjects** – Controlled vocabulary of document topics.
+- **document_subjects** – Many-to-many link between documents and subjects.
+- **sponsorships** – Tracks which actors sponsored a document (initial vs. additional).
 
 ### Current implementation status
 - **Fully implemented:** the six tables above, including cascading relationships and helper methods exposed in `db/models.py`.
@@ -321,6 +324,30 @@ Use these patterns in RAG, UI, or trajectory QA to pull precise statements (e.g.
 | document_id | integer | Foreign key to documents |
 | reference_type | string | Type of reference (mentioned, voting_on, etc.) |
 | context | text | Context where document was mentioned |
+| created_at | timestamp | Creation timestamp |
+
+### subjects
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| name | string | Subject name (unique) |
+
+### document_subjects
+
+| Column | Type | Description |
+|--------|------|-------------|
+| document_id | integer | Foreign key to documents |
+| subject_id | integer | Foreign key to subjects |
+
+### sponsorships
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| document_id | integer | Foreign key to documents |
+| actor_id | integer | Foreign key to actors |
+| sponsorship_type | string | initial, additional |
 | created_at | timestamp | Creation timestamp |
 
 ---

@@ -11,20 +11,9 @@ from openai import OpenAI
 # Load environment variables
 load_dotenv()
 
-# Set up logging (use project root logs directory)
-LOG_DIR = Path(__file__).parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "text_to_sql_generation.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Set up logging
+from utils.logging_config import get_logger
+logger = get_logger(__name__, log_file="text_to_sql_generation.log")
 
 # OpenAI client will be initialized lazily when needed
 _client = None
@@ -118,6 +107,21 @@ Tables:
    - context (text) - sentence/context where document was mentioned
    - created_at (timestamp)
 
+7. subjects
+   - id (integer, primary key)
+   - name (text, unique, indexed) - e.g. "SUSTAINABLE DEVELOPMENT", "HUMAN RIGHTS"
+
+8. document_subjects
+   - document_id (integer, foreign key to documents.id, primary key)
+   - subject_id (integer, foreign key to subjects.id, primary key)
+
+9. sponsorships
+   - id (integer, primary key)
+   - document_id (integer, foreign key to documents.id, indexed)
+   - actor_id (integer, foreign key to actors.id, indexed)
+   - sponsorship_type (text) - 'initial' (from authors list) or 'additional' (from meeting notes)
+   - created_at (timestamp)
+
 Example document symbols:
 - Resolutions: A/RES/78/3, A/RES/78/220, A/RES/78/271
 - Drafts: A/78/L.2, A/C.3/78/L.41
@@ -130,6 +134,8 @@ Common query patterns:
 - Join documents with relationships: JOIN document_relationships ON document_relationships.source_id = documents.id OR document_relationships.target_id = documents.id
 - Join utterances with meetings: JOIN documents ON documents.id = utterances.meeting_id WHERE documents.doc_type = 'meeting'
 - Join utterances with actors: JOIN actors ON actors.id = utterances.speaker_actor_id
+- Join documents with subjects: JOIN document_subjects ON document_subjects.document_id = documents.id JOIN subjects ON subjects.id = document_subjects.subject_id
+- Join documents with sponsors: JOIN sponsorships ON sponsorships.document_id = documents.id JOIN actors ON actors.id = sponsorships.actor_id
 
 Note: Use ILIKE for case-insensitive text matching. Use JSONB operators (->, ->>) to access metadata fields.
 """

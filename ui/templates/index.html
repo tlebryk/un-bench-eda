@@ -121,16 +121,19 @@
                     <strong>Results Found:</strong> {{ result.row_count }}
                     {% if result.truncated %} <span style="color: var(--text-secondary); font-weight:400;">(showing first {{ result.rows|length }})</span>{% endif %}
                 </div>
-                {% if not demo_mode %}
                 <div style="display: flex; gap: 0.5rem;">
+                    <button id="download-btn" class="btn btn-secondary" type="button">
+                        ⬇️ Download CSV
+                    </button>
+                    {% if not demo_mode %}
                     <button id="summarize-btn" class="btn btn-accent">
                         ✨ Summarize
                     </button>
                     <button id="answer-btn" class="btn btn-accent">
                         💬 Answer Question
                     </button>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
 
             <div id="summary-container" style="display: none;"></div>
@@ -341,6 +344,63 @@
                 } catch(e) {
                     container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;
                     answerBtn.disabled = false;
+                }
+            });
+        }
+
+        // 6. Download CSV Logic
+        const downloadBtn = document.getElementById('download-btn');
+        if(downloadBtn) {
+            const defaultText = downloadBtn.innerText;
+            downloadBtn.addEventListener('click', async () => {
+                if(!window.SQL_QUERY) {
+                    alert('No SQL query available to download.');
+                    return;
+                }
+
+                downloadBtn.disabled = true;
+                downloadBtn.innerText = 'Preparing...';
+
+                try {
+                    const formData = new FormData();
+                    formData.append('sql_query', window.SQL_QUERY);
+
+                    const res = await fetch('/download-results', { method: 'POST', body: formData });
+                    if(!res.ok) {
+                        let errorMessage = 'Failed to download results';
+                        try {
+                            const data = await res.json();
+                            errorMessage = data.detail || data.error || errorMessage;
+                        } catch (parseErr) {
+                            const text = await res.text();
+                            if(text) {
+                                errorMessage = text;
+                            }
+                        }
+                        throw new Error(errorMessage);
+                    }
+
+                    const blob = await res.blob();
+                    const disposition = res.headers.get('content-disposition') || '';
+                    const match = disposition.match(/filename="?([^";]+)"?/i);
+                    const filename = match ? match[1] : 'query-results.csv';
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    downloadBtn.innerText = 'Downloaded';
+                } catch (error) {
+                    alert(error.message || 'Failed to download results');
+                    downloadBtn.innerText = defaultText;
+                } finally {
+                    setTimeout(() => {
+                        downloadBtn.disabled = false;
+                        downloadBtn.innerText = defaultText;
+                    }, 1200);
                 }
             });
         }

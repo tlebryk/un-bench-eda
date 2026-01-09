@@ -5,6 +5,8 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime
 import json
+import re
+from typing import List
 
 
 class BaseLoader:
@@ -80,6 +82,122 @@ class BaseLoader:
         self.session.flush()
         self.actor_cache[name] = new_actor.id
         return new_actor.id
+
+    def get_or_create_subject(self, name: str) -> int:
+        """Get or create subject, return ID"""
+        from db.models import Subject
+
+        # Clean subject name
+        name = name.strip().upper()
+        if not name:
+            return None
+
+        # Check database (cache logic can be added later if performance issue)
+        subject = self.session.query(Subject).filter_by(name=name).first()
+        if subject:
+            return subject.id
+
+        # Create new
+        new_subject = Subject(name=name)
+        self.session.add(new_subject)
+        self.session.flush()
+        return new_subject.id
+
+    def load_all_actors(self):
+        """Load all actors into cache for matching"""
+        from db.models import Actor
+        actors = self.session.query(Actor).all()
+        for actor in actors:
+            self.actor_cache[actor.name] = actor.id
+
+    def extract_sponsors(self, text: str) -> List[int]:
+        """Extract sponsors from text string using longest-match against known actors"""
+        if not text:
+            return []
+            
+        if not self.actor_cache:
+            self.load_all_actors()
+        
+        found_ids = set()
+        # Sort actor names by length descending to ensure longest match
+        sorted_names = sorted(self.actor_cache.keys(), key=len, reverse=True)
+        
+        remaining_text = text
+        for name in sorted_names:
+            if name in remaining_text:
+                found_ids.add(self.actor_cache[name])
+                # Remove all occurrences to avoid sub-match confusion
+                remaining_text = remaining_text.replace(name, " ")
+        
+        return list(found_ids)
+
+    def extract_additional_sponsors(self, notes: str) -> List[int]:
+        """Parse 'Additional sponsors: ...' from notes"""
+        if not notes:
+            return []
+            
+        match = re.search(r"Additional sponsors: (.*?)(?:\(|$)", notes)
+        if match:
+            sponsors_str = match.group(1)
+            return self.extract_sponsors(sponsors_str)
+        return []
+
+    def _process_metadata_enrichment(self, doc, data: dict):
+        """Process subjects and sponsorships from full parsed data"""
+        from db.models import DocumentSubject, Sponsorship
+        
+        metadata = data.get("metadata", {})
+        
+        # Subjects (usually top-level in parsed JSON)
+        subjects_list = data.get("subjects", [])
+        if not subjects_list:
+            # Fallback to metadata if present there
+            subjects_list = metadata.get("subjects", [])
+
+        if subjects_list and isinstance(subjects_list, list):
+            seen_subj_ids = set()
+            for subj_name in subjects_list:
+                subj_id = self.get_or_create_subject(subj_name)
+                if subj_id:
+                    if subj_id in seen_subj_ids:
+                        continue
+                    seen_subj_ids.add(subj_id)
+                    
+                    # Check if link exists
+                    exists = self.session.query(DocumentSubject).filter_by(
+                        document_id=doc.id, subject_id=subj_id
+                    ).first()
+                    if not exists:
+                        self.session.add(DocumentSubject(document_id=doc.id, subject_id=subj_id))
+
+        # Sponsorships
+        # Initial sponsors
+        authors_str = metadata.get("authors")
+        # Ensure it's a string. Sometimes might be list?
+        if authors_str and isinstance(authors_str, list):
+            authors_str = " ".join(authors_str)
+            
+        if authors_str and isinstance(authors_str, str): 
+            sponsor_ids = self.extract_sponsors(authors_str)
+            for actor_id in sponsor_ids:
+                if not self.session.query(Sponsorship).filter_by(
+                    document_id=doc.id, actor_id=actor_id, sponsorship_type='initial'
+                ).first():
+                    self.session.add(Sponsorship(
+                        document_id=doc.id, actor_id=actor_id, sponsorship_type='initial'
+                    ))
+
+        # Additional sponsors
+        notes_str = metadata.get("notes")
+        if notes_str and isinstance(notes_str, str):
+            additional_ids = self.extract_additional_sponsors(notes_str)
+            for actor_id in additional_ids:
+                if not self.session.query(Sponsorship).filter_by(
+                    document_id=doc.id, actor_id=actor_id
+                ).first():
+                    self.session.add(Sponsorship(
+                        document_id=doc.id, actor_id=actor_id, sponsorship_type='additional'
+                    ))
 
     def print_stats(self):
         """Print loading statistics"""
