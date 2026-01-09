@@ -49,6 +49,9 @@ elif USE_DEV_DB:
 else:
     logger.info("🚀 Starting UI with LOCAL database")
 
+# Will be set after RAG_PROMPT_STYLE is defined below
+_logged_prompt_style = False
+
 APP_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
@@ -112,6 +115,10 @@ ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'
 SHARED_PASSWORD = os.getenv('SHARED_PASSWORD', '')
 SESSION_COOKIE_NAME = "ui_session"
 SESSION_COOKIE_MAX_AGE = 12 * 60 * 60  # 12 hours
+
+# RAG prompt style configuration
+RAG_PROMPT_STYLE = os.getenv('RAG_PROMPT_STYLE', 'analytical')
+logger.info(f"📝 RAG prompt style: {RAG_PROMPT_STYLE}")
 
 if ENABLE_AUTH and not SHARED_PASSWORD:
     raise RuntimeError("ENABLE_AUTH is true but SHARED_PASSWORD is not set")
@@ -202,6 +209,25 @@ def looks_like_symbol(value: str) -> bool:
     return bool(SYMBOL_PATTERN.search(normalized))
 
 
+def symbol_to_docs_url(symbol: str, language: str = "en") -> str:
+    """
+    Convert UN document symbol to documents.un.org API URL for PDF access.
+    
+    Uses the Official Document System (ODS) API which reliably serves PDFs.
+    
+    Args:
+        symbol: UN document symbol (e.g., A/RES/78/276)
+        language: Language code (default: en)
+    
+    Returns:
+        URL to PDF at documents.un.org API
+    """
+    # Convert RES to lowercase res, keep everything else as-is
+    symbol_lower = symbol.replace('/RES/', '/res/')
+    # Construct ODS API URL
+    return f"https://documents.un.org/api/symbol/access?s={symbol_lower}&l={language}&t=pdf"
+
+
 def pick_pdf_url(metadata: Dict[str, Any]) -> Optional[str]:
     """Select the best PDF URL from metadata, preferring English when available."""
     if not metadata:
@@ -238,9 +264,9 @@ def fetch_document_links(symbols: Set[str], ids: Set[int]) -> Tuple[Dict[str, st
             for doc in docs:
                 url = pick_pdf_url(doc.doc_metadata)
                 if not url:
-                    record_id = (doc.doc_metadata or {}).get("id") or (doc.doc_metadata or {}).get("metadata", {}).get("record_id")
-                    if record_id:
-                        url = f"https://digitallibrary.un.org/record/{record_id}?ln=en"
+                    # Fallback: Use ODS URL (reliable for most document types)
+                    if doc.symbol:
+                        url = symbol_to_docs_url(doc.symbol, language="en")
                 if url:
                     symbol_map[normalize_symbol(doc.symbol)] = url
                     id_map[doc.id] = url
@@ -251,9 +277,9 @@ def fetch_document_links(symbols: Set[str], ids: Set[int]) -> Tuple[Dict[str, st
             for doc in docs:
                 url = pick_pdf_url(doc.doc_metadata)
                 if not url:
-                    record_id = (doc.doc_metadata or {}).get("id") or (doc.doc_metadata or {}).get("metadata", {}).get("record_id")
-                    if record_id:
-                        url = f"https://digitallibrary.un.org/record/{record_id}?ln=en"
+                    # Fallback: Use ODS URL (reliable for most document types)
+                    if doc.symbol:
+                        url = symbol_to_docs_url(doc.symbol, language="en")
                 if url:
                     symbol_map.setdefault(normalize_symbol(doc.symbol), url)
                     id_map[doc.id] = url
@@ -574,7 +600,8 @@ def rag_answer_query(
         rag_answer = answer_question(
             query_results=result,
             original_question=original_question,
-            sql_query=final_sql_query
+            sql_query=final_sql_query,
+            prompt_style=RAG_PROMPT_STYLE
         )
         
         return templates.TemplateResponse(
@@ -774,7 +801,8 @@ def text_to_sql_query(request: Request, natural_language_query: str = Form(None)
                         rag_answer = answer_question(
                             query_results=result,
                             original_question=natural_language_query,
-                            sql_query=sql_query
+                            sql_query=sql_query,
+                            prompt_style=RAG_PROMPT_STYLE
                         )
                         logger.info(f"RAG Q&A completed - Sources: {len(rag_answer.get('sources', []))}")
                     except Exception as rag_exc:
@@ -946,7 +974,8 @@ def api_rag_answer(
         rag_response = answer_question(
             query_results=result,
             original_question=original_question,
-            sql_query=final_sql_query
+            sql_query=final_sql_query,
+            prompt_style=RAG_PROMPT_STYLE
         )
         
         return {

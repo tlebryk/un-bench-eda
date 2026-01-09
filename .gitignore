@@ -45,3 +45,8 @@ scratch/
 .devcontainer/
 .github/
 .pytest_cache/
+# Sphinx build artifacts
+/docs/_build/
+
+# Sphinx autosummary output
+/docs/source/_autosummary/

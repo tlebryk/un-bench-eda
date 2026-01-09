@@ -59,34 +59,44 @@ def get_value(cell_data: Any) -> Any:
     return cell_data
 
 
+def _find_column(row: Dict[str, Any], *possible_names: str) -> Optional[str]:
+    """
+    Find first matching column name from possible variations.
+    Handles cases where SQL uses aliases like 'utterance_text' vs 'text'.
+    """
+    for name in possible_names:
+        if name in row:
+            return name
+    return None
+
+
 def extract_evidence_context(
     query_results: Dict[str, Any],
     max_results: int = MAX_RESULTS_FOR_EVIDENCE
 ) -> List[Dict[str, Any]]:
     """
     Extract evidence context from query results, handling ALL database tables.
-    
+
     Extracts from:
     - documents: symbol, title, date, body_text, doc_type, session
     - votes: vote_type, vote_context, actor names
     - utterances: text, speaker_affiliation, speaker_name, meeting context
     - actors: name, normalized_name, actor_type
     - document_relationships: relationship_type, source/target symbols
-    
+
     Args:
         query_results: Result dictionary from execute_sql with 'columns' and 'rows'
         max_results: Maximum number of rows to process
-    
+
     Returns:
         List of evidence dictionaries with type, symbol, data, and text fields
     """
     if not query_results.get("rows"):
         return []
-    
+
     evidence_list = []
     rows = query_results["rows"][:max_results]
-    columns = query_results.get("columns", [])
-    
+
     for row in rows:
         evidence = {
             "type": "unknown",
@@ -94,28 +104,31 @@ def extract_evidence_context(
             "data": {},
             "text": None
         }
-        
-        # Extract document information
-        if "symbol" in row:
-            evidence["symbol"] = get_value(row["symbol"])
+
+        # Extract document information - handle symbol variations
+        symbol_col = _find_column(row, "symbol", "document_symbol")
+        if symbol_col:
+            evidence["symbol"] = get_value(row[symbol_col])
             evidence["type"] = "document"
-            
+
             # Extract document fields
             if "title" in row:
                 evidence["data"]["title"] = get_value(row["title"])
-            if "date" in row:
-                date_val = get_value(row["date"])
+            date_col = _find_column(row, "date", "document_date")
+            if date_col:
+                date_val = get_value(row[date_col])
                 if date_val:
                     evidence["data"]["date"] = str(date_val)
             if "doc_type" in row:
                 evidence["data"]["doc_type"] = get_value(row["doc_type"])
             if "session" in row:
                 evidence["data"]["session"] = get_value(row["session"])
-            if "body_text" in row:
-                body_text = get_value(row["body_text"])
+            body_text_col = _find_column(row, "body_text", "document_text")
+            if body_text_col:
+                body_text = get_value(row[body_text_col])
                 if body_text:
                     evidence["text"] = str(body_text)
-        
+
         # Extract vote information
         if "vote_type" in row or "vote_context" in row:
             if evidence["type"] == "unknown":
@@ -125,18 +138,18 @@ def extract_evidence_context(
             if "vote_context" in row:
                 evidence["data"]["vote_context"] = get_value(row["vote_context"])
             # Try to get actor name from various column names
-            for col in ["name", "actor_name", "speaker_affiliation", "country"]:
-                if col in row:
-                    actor_name = get_value(row[col])
-                    if actor_name:
-                        evidence["data"]["actor"] = str(actor_name)
-                        break
-        
-        # Extract utterance information
-        if "text" in row and evidence["type"] != "document":
+            actor_col = _find_column(row, "name", "actor_name", "speaker_affiliation", "country")
+            if actor_col:
+                actor_name = get_value(row[actor_col])
+                if actor_name:
+                    evidence["data"]["actor"] = str(actor_name)
+
+        # Extract utterance information - handle text variations
+        text_col = _find_column(row, "text", "utterance_text", "speech_text")
+        if text_col and evidence["type"] != "document":
             if evidence["type"] == "unknown":
                 evidence["type"] = "utterance"
-            utterance_text = get_value(row["text"])
+            utterance_text = get_value(row[text_col])
             if utterance_text:
                 evidence["text"] = str(utterance_text)
             # Extract utterance ID if present (for fetching missing text)
@@ -148,10 +161,20 @@ def extract_evidence_context(
                 evidence["data"]["speaker_affiliation"] = get_value(row["speaker_affiliation"])
             if "speaker_name" in row:
                 evidence["data"]["speaker_name"] = get_value(row["speaker_name"])
-            if "meeting_id" in row or "meeting_symbol" in row:
-                meeting_ref = get_value(row.get("meeting_id") or row.get("meeting_symbol"))
+            meeting_col = _find_column(row, "meeting_id", "meeting_symbol")
+            if meeting_col:
+                meeting_ref = get_value(row[meeting_col])
                 if meeting_ref:
                     evidence["data"]["meeting"] = str(meeting_ref)
+                    # If we have meeting_symbol but no symbol yet, use it
+                    if not evidence["symbol"] and meeting_col == "meeting_symbol":
+                        evidence["symbol"] = meeting_ref
+            # Extract meeting date if present
+            meeting_date_col = _find_column(row, "meeting_date")
+            if meeting_date_col:
+                date_val = get_value(row[meeting_date_col])
+                if date_val:
+                    evidence["data"]["date"] = str(date_val)
             if "agenda_item_number" in row:
                 evidence["data"]["agenda_item"] = get_value(row["agenda_item_number"])
         
@@ -272,8 +295,8 @@ def format_evidence_for_prompt(evidence_context: List[Dict[str, Any]]) -> str:
                 parts.append(f"Title: {data['title']}")
             if text:
                 # Truncate long text (keep first 1000 chars + last 500 chars)
-                if len(text) > 1500:
-                    text_preview = f"{text[:1000]}... [truncated] ...{text[-500:]}"
+                if len(text) > 3000:
+                    text_preview = f"{text[:2000]}... [truncated] ...{text[-1000:]}"
                 else:
                     text_preview = text
                 parts.append(f"Text: {text_preview}")
@@ -333,21 +356,23 @@ def answer_question(
     query_results: Dict[str, Any],
     original_question: str,
     sql_query: Optional[str] = None,
-    model: str = "gpt-5-nano-2025-08-07"
+    model: str = "gpt-5-mini-2025-08-07",
+    prompt_style: str = "analytical"
 ) -> Dict[str, Any]:
     """
-    Answer a question using RAG with strict evidence grounding.
-    
+    Answer a question using RAG with configurable prompt styles.
+
     Args:
         query_results: Result dictionary from execute_sql
         original_question: The original natural language question
         sql_query: Optional SQL query that generated the results
         model: OpenAI model to use
-    
+        prompt_style: Prompt style to use ("strict", "analytical", "conversational")
+
     Returns:
         Dictionary with 'answer', 'evidence', and 'sources' keys
     """
-    logger.info(f"Answering question (model: {model}): {original_question}")
+    logger.info(f"Answering question (model: {model}, style: {prompt_style}): {original_question}")
     
     # Extract evidence context
     evidence_context = extract_evidence_context(query_results)
@@ -403,29 +428,20 @@ def answer_question(
             if evidence.get("data", {}).get("target"):
                 sources.append(evidence["data"]["target"])
     sources = list(set(sources))  # Deduplicate
-    
-    # Build prompt with strict grounding rules
-    sql_section = f"\nSQL Query used: {sql_query}\n" if sql_query else ""
-    
-    prompt = f"""You are a research assistant analyzing UN General Assembly documents and meeting records.
 
-STRICT RULES:
-1. Base answers ONLY on the provided database results. Do not use external knowledge.
-2. Cite sources using document symbols (e.g., "According to A/RES/78/220..." or "As stated in A/RES/78/220...")
-3. Quote exact text when making specific claims about document content.
-4. If data is insufficient to answer the question, explicitly state what's missing.
-5. Do NOT speculate, infer beyond what's stated, or use external knowledge.
-6. Distinguish between:
-   - What the data explicitly states
-   - What can be reasonably inferred from the data
-   - What is unknown/not in the data
+    # Load prompt from registry
+    from rag.prompt_registry import get_prompt
+    system_instructions = get_prompt(prompt_style)
+
+    # Build prompt with configurable style
+    sql_section = f"\nSQL Query used: {sql_query}\n" if sql_query else ""
+
+    prompt = f"""{system_instructions}
 
 Question: {original_question}
 {sql_section}
 Retrieved Data:
 {formatted_evidence}
-
-Provide a direct answer to the question, citing specific document symbols and quoting relevant passages where appropriate. If the data cannot fully answer the question, explain what information is available and what is missing.
 
 Answer:"""
     
@@ -471,7 +487,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Answer questions using RAG with evidence grounding")
     parser.add_argument("question", help="Natural language question")
-    parser.add_argument("--model", default="gpt-5-nano-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
     args = parser.parse_args()
     
     print("This module is designed to be used programmatically.")

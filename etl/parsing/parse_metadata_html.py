@@ -82,6 +82,49 @@ def extract_metadata_row_links(soup: BeautifulSoup, title_text: str) -> List[Dic
     return []
 
 
+def extract_citation_pdf_urls(soup: BeautifulSoup) -> List[Dict[str, str]]:
+    """
+    Extract PDF URLs from citation_pdf_url meta tags.
+    
+    These meta tags contain direct PDF URLs that are more reliable than
+    the Access metadata row links.
+    
+    Args:
+        soup: BeautifulSoup object
+    
+    Returns:
+        List of dicts with language, filename, and url
+    """
+    files = []
+    lang_code_map = {
+        'EN': 'English',
+        'FR': 'French', 
+        'ES': 'Spanish',
+        'AR': 'Arabic',
+        'RU': 'Russian',
+        'ZH': 'Chinese'
+    }
+    
+    for meta in soup.find_all('meta', attrs={'name': 'citation_pdf_url'}):
+        url = meta.get('content', '').strip()
+        if url and url.endswith('.pdf'):
+            # Extract language from filename: A_78_PV.109-EN.pdf -> EN
+            lang_match = re.search(r'-([A-Z]{2})\.pdf$', url)
+            lang_code = lang_match.group(1) if lang_match else 'EN'
+            language = lang_code_map.get(lang_code, lang_code)
+            
+            # Extract filename from URL
+            filename = url.split('/')[-1]
+            
+            files.append({
+                'language': language,
+                'filename': filename,
+                'url': url
+            })
+    
+    return files
+
+
 def extract_access_files(soup: BeautifulSoup) -> List[Dict[str, str]]:
     """
     Extract file access information from the Access metadata row.
@@ -401,7 +444,19 @@ def parse_metadata_html(html_file: Path) -> Dict:
     agenda_items = extract_agenda_items(soup)
     
     # Extract file access information
-    files = extract_access_files(soup)
+    # Prefer citation_pdf_url meta tags (more reliable direct PDF URLs)
+    citation_files = extract_citation_pdf_urls(soup)
+    access_files = extract_access_files(soup)
+    
+    # Merge files, preferring citation URLs (they come first)
+    # Deduplicate by URL to avoid duplicates
+    seen_urls = set()
+    files = []
+    for file_entry in citation_files + access_files:
+        url = file_entry.get('url', '')
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            files.append(file_entry)
     
     # Extract subjects
     subjects = extract_subjects(soup)

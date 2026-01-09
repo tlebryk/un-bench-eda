@@ -138,7 +138,7 @@ The SQL UI now includes a text-to-SQL feature powered by OpenAI. You can ask que
    OPENAI_API_KEY=your_openai_api_key_here
    DATABASE_URL=postgresql://un_user:un_password@localhost:5433/un_documents
    ```
-3. The app uses `gpt-5-nano-2025-08-07` by default (cheap and fast). You can change this in `text_to_sql.py`.
+3. The app uses `gpt-5-mini-2025-08-07` by default (cheap and fast). You can change this in `text_to_sql.py`.
 
 **Usage:**
 - In the SQL UI (http://127.0.0.1:8000), use the "Ask in Natural Language" section at the top
@@ -199,6 +199,49 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 - Build materialized views or helper SQL to expose JSONB fields that the UI/RAG layers query frequently.
 - Add GIN indexes for `doc_metadata` and future `body_text_vector` columns to support full-text search.
 - Stand up an `actor_aliases` helper table to normalize spelling variants in votes/utterances.
+
+### Meeting utterances pipeline (now folded into schema)
+- **Sources:** Plenary verbatim records (`A/78/PV.*`) parsed by `etl/parsing/parse_meeting_pdf.py` and committee summary records (`A/C.*/78/SR.*`) parsed by `etl/parsing/parse_committee_sr.py`.
+- **Loader:** `etl/load_meetings.py` persists the meeting document itself, each utterance row (speaker metadata, section, agenda item, word counts), related votes, and the `utterance_documents` junction entries tying statements back to drafts/resolutions/agenda items.
+- **Why JSONB metadata?** Voting information or resolution references can show up inline (“draft resolution A/C.3/78/L.41 as orally revised ...”); parsers capture those snippets in `utterance_metadata` so downstream RAG or UI layers can surface context without re-parsing PDF text.
+- **Genealogy traversal:** `execute_get_related_documents()` (used by the multi-step tooling) starts from a resolution symbol, traverses `document_relationships`, and hands the resulting meeting symbols to `execute_get_utterances()` so we can assemble “resolution → meeting → utterance” chains.
+
+#### Practical queries
+```sql
+-- All statements about a specific resolution
+SELECT u.speaker_name,
+       u.speaker_affiliation,
+       u.agenda_item_number,
+       u.text,
+       m.symbol AS meeting_symbol,
+       m.date AS meeting_date
+FROM utterances u
+JOIN utterance_documents ud ON ud.utterance_id = u.id
+JOIN documents d ON d.id = ud.document_id
+JOIN documents m ON m.id = u.meeting_id
+WHERE d.symbol = 'A/RES/78/281'
+ORDER BY m.date, u.position_in_meeting;
+
+-- Trace utterances from a draft backwards through agenda items
+WITH resolution_tree AS (
+    SELECT id FROM documents WHERE symbol = 'A/C.3/78/L.41'
+    UNION
+    SELECT d.id
+    FROM documents d
+    JOIN document_relationships dr ON dr.target_id = d.id OR dr.source_id = d.id
+    JOIN resolution_tree rt ON (dr.target_id = rt.id OR dr.source_id = rt.id)
+)
+SELECT u.id, u.speaker_affiliation, LEFT(u.text, 200) AS excerpt,
+       d.symbol AS referenced_document, m.symbol AS meeting_symbol
+FROM utterances u
+JOIN utterance_documents ud ON ud.utterance_id = u.id
+JOIN documents d ON d.id = ud.document_id
+JOIN documents m ON m.id = u.meeting_id
+WHERE ud.document_id IN (SELECT id FROM resolution_tree)
+ORDER BY m.date, u.position_in_meeting;
+```
+
+Use these patterns in RAG, UI, or trajectory QA to pull precise statements (e.g., voting utterances labeled `reference_type='voting_on'`).
 
 ---
 

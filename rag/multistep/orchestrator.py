@@ -37,7 +37,7 @@ if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(MULTISTE
 class MultiStepOrchestrator:
     """Orchestrate multi-step RAG queries using OpenAI tool calling."""
 
-    def __init__(self, model: str = "gpt-5-nano-2025-08-07", max_steps: int = 6):
+    def __init__(self, model: str = "gpt-5-mini-2025-08-07", max_steps: int = 6):
         self.model = model
         self.max_steps = max_steps
         

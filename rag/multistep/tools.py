@@ -14,13 +14,13 @@ def get_related_documents_tool() -> Dict[str, Any]:
     return {
         "type": "function",
         "name": "get_related_documents",
-        "description": "Get all documents related to a resolution (drafts, meetings, committee reports, agenda items) by traversing document relationships. Use this to find meetings where a resolution was discussed.",
+        "description": "Get all documents related to a resolution (drafts, meetings, committee reports, agenda items) by traversing document relationships. Use this to find meetings where a resolution was discussed. Returns lists of meeting symbols (e.g., A/78/PV.16), draft symbols (e.g., A/78/L.2), committee report symbols, and agenda item symbols.",
         "parameters": {
             "type": "object",
             "properties": {
                 "symbol": {
                     "type": "string",
-                    "description": "Document symbol (resolution, draft, etc.), e.g., 'A/RES/78/220'"
+                    "description": "Document symbol with slashes (resolution, draft, etc.), e.g., 'A/RES/78/220', 'A/78/L.2'"
                 }
             },
             "required": ["symbol"]
@@ -163,18 +163,18 @@ def get_votes_tool() -> Dict[str, Any]:
     return {
         "type": "function",
         "name": "get_votes",
-        "description": "Get voting records showing which countries voted for, against, or abstained on a resolution.",
+        "description": "Get voting records showing which countries voted for, against, or abstained on a resolution. Returns votes grouped by type: 'in_favour', 'against', 'abstaining'.",
         "parameters": {
             "type": "object",
             "properties": {
                 "symbol": {
                     "type": "string",
-                    "description": "Resolution symbol, e.g., 'A/RES/78/220'"
+                    "description": "Resolution symbol with slashes, e.g., 'A/RES/78/220'"
                 },
                 "vote_type": {
                     "type": "string",
                     "enum": ["in_favour", "against", "abstaining"],
-                    "description": "Filter by vote type (optional)"
+                    "description": "Filter by vote type (optional). Use exact values: 'in_favour' (not 'yes'), 'against' (not 'no'), 'abstaining'"
                 }
             },
             "required": ["symbol"]
@@ -244,19 +244,19 @@ def get_utterances_tool() -> Dict[str, Any]:
     return {
         "type": "function",
         "name": "get_utterances",
-        "description": "Get statements/speeches made in UN meetings. Filter by meeting symbols and/or speaker countries.",
+        "description": "Get statements/speeches made in UN meetings. Filter by meeting symbols and/or speaker countries. Returns utterances with speaker info, text, and agenda item context.",
         "parameters": {
             "type": "object",
             "properties": {
                 "meeting_symbols": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of meeting symbols, e.g., ['A/78/PV.80']"
+                    "description": "List of meeting symbols with slashes, e.g., ['A/78/PV.80', 'A/78/PV.16']"
                 },
                 "speaker_countries": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Filter by speaker country names (optional)"
+                    "description": "Filter by speaker country names (optional), e.g., ['France', 'United States']"
                 }
             },
             "required": ["meeting_symbols"]

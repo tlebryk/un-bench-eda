@@ -10,6 +10,13 @@ A complete pipeline for collecting UN General Assembly documents, building resol
 
 For the full research context, see [project.md](project.md).
 
+## Documentation Map
+
+- [docs/etl.md](docs/etl.md) – End-to-end ETL runbook (fetch → parse → load, QA, incident notes)
+- [docs/README_DATABASE.md](docs/README_DATABASE.md) – Schema details, meeting utterances storage, genealogy traversal
+- [docs/gym.md](docs/gym.md) & [docs/training_eval.md](docs/training_eval.md) – Gym internals, evaluation, world-model/IRL experiments
+- [docs/rag_enhancement_plan.md](docs/rag_enhancement_plan.md) – RAG + multi-step orchestration design and backlog
+
 ## Dependency Management
 
 This project uses **uv** with **dependency groups** to manage different components efficiently:

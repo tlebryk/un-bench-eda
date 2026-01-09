@@ -2106,6 +2106,7 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
+    { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
     { name = "sqlalchemy" },
@@ -2115,9 +2116,11 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
+    { name = "markdown-it-py" },
     { name = "pytest" },
 ]
 docs = [
+    { name = "markdown-it-py" },
     { name = "myst-parser" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
@@ -2143,6 +2146,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.35" },
@@ -2152,9 +2156,11 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel", specifier = ">=7.1.0" },
+    { name = "markdown-it-py", specifier = ">=3.0.0" },
     { name = "pytest", specifier = ">=7.4.0" },
 ]
 docs = [
+    { name = "markdown-it-py", specifier = ">=3.0.0" },
     { name = "myst-parser" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
