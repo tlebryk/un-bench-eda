@@ -42,7 +42,7 @@ BaseLoader (abstract logger/stats helpers)
  ├── DocumentLoader
  │    ├── ResolutionLoader
  │    ├── DraftLoader
- │    ├── MeetingLoader (builds utterances + votes)
+ │    ├── MeetingLoader (builds utterances + votes + procedural events)
  │    ├── CommitteeReportLoader
  │    └── AgendaLoader
  └── ActorLoader (normalizes names and caches IDs)
@@ -52,6 +52,12 @@ Key BaseLoader behaviors (see `db/etl/base_loader.py`):
 - Validates JSON, logs per-file progress, and commits/rolls back per file to stay idempotent.
 - Computes hashes + symbol extraction helpers to avoid duplicates.
 - Emits structured stats (total/success/failed/skipped) and log files (`logs/etl_*.log`).
+
+### Procedural Votes & Oral Amendments
+As of Jan 2026, the pipeline supports **procedural votes** (e.g., motions for division, oral amendments).
+- **Parser:** Extracts `procedural_events` from meeting text.
+- **Schema:** Stored in `vote_events` table, linked to `votes` (where `document_id` is NULL).
+- **Goal:** Enable tracking of failed amendments and complex voting maneuvers that don't result in a final resolution document.
 
 ### Actor normalization
 `ActorLoader` loads cached actors from DB, applies normalization rules (e.g., *United States of America → United States*), and exposes `get_or_create_actor()` to other loaders. Aliases land in the JSONB metadata for future cleanup.

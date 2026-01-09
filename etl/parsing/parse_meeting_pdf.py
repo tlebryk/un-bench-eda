@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pdfplumber
 
 
-DOC_PATTERN = re.compile(r'\b[A-Z]/[\dA-Z]+(?:/[A-Z0-9.\-]+)+\b')
+DOC_PATTERN = re.compile(r'\b[A-Z]/[\dA-Z.]+(?:/\s*[A-Za-z0-9.\-]+)+\b')
 # Pattern for single agenda item: "Agenda item 11" or "Agenda item 11 (continued)"
 AGENDA_PATTERN_SINGLE = re.compile(
     r'^\s*Agenda item\s+(?P<number>\d+[A-Za-z]*)\s*(?P<rest>\([^)]+\))?(?P<title>.*)$',
@@ -681,8 +681,9 @@ def extract_resolution_metadata(text: str) -> Dict[str, Any]:
         metadata['resolution_title'] = title
     
     # Pattern for resolution number: "resolution 78/225" or "(resolution 78/225)"
+    # Enforce that session number is 1-3 digits to avoid matching years (e.g. 2023/10)
     resolution_pattern = re.compile(
-        r'\(?resolution\s+(\d+/\d+)\)?',
+        r'\(?resolution\s+([1-9]\d{0,2}/\d+)\)?',
         re.IGNORECASE
     )
     resolution_match = resolution_pattern.search(text)
@@ -707,6 +708,19 @@ def extract_resolution_metadata(text: str) -> Dict[str, Any]:
         if re.search(pattern, text, re.IGNORECASE):
             metadata['adoption_status'] = status
             break
+
+    # Detect procedural motions
+    if re.search(r'motion\s+for\s+division', text, re.IGNORECASE) or \
+       re.search(r'motion\s+to\s+divide', text, re.IGNORECASE):
+        metadata['procedural_type'] = 'motion_for_division'
+    elif (re.search(r'amendment', text, re.IGNORECASE) and 
+          re.search(r'vote', text, re.IGNORECASE) and 
+          not metadata.get('resolution_number')):
+         metadata['procedural_type'] = 'vote_on_amendment'
+         
+         # Distinguish oral amendments
+         if re.search(r'oral\s+amendment', text, re.IGNORECASE):
+             metadata['procedural_type'] = 'vote_on_oral_amendment'
     
     # Extract vote lists (In favour, Against, Abstaining)
     vote_lists = _extract_vote_lists(text)
@@ -782,12 +796,42 @@ def finalize_utterance(utterance: Optional[Dict[str, Any]]) -> Optional[Dict[str
     utterance['text'] = text
     utterance.pop('text_lines', None)
     utterance['word_count'] = len(text.split()) if text else 0
-    utterance['documents'] = [doc['symbol'] for doc in detect_documents(text)]
+    
+    # Detect all document symbols
+    doc_symbols = [doc['symbol'] for doc in detect_documents(text)]
+    utterance['documents'] = doc_symbols
     
     # Extract resolution metadata
     resolution_metadata = extract_resolution_metadata(text)
     if resolution_metadata:
-        utterance['resolution_metadata'] = resolution_metadata
+        # If it's a procedural vote/motion, store as an event
+        if resolution_metadata.get('procedural_type'):
+            # Try to find a target draft symbol in the detected documents
+            # Filter for L-docs (A/XX/L.XX) or Committee drafts (A/C.X/XX/L.XX)
+            potential_drafts = [d for d in doc_symbols if '/L.' in d]
+            
+            # Prefer the one explicitly identified, otherwise fall back to found L-docs
+            draft_id = resolution_metadata.get('draft_resolution_identifier')
+            if not draft_id and potential_drafts:
+                draft_id = potential_drafts[0]
+
+            event = {
+                'event_type': resolution_metadata.get('procedural_type'),
+                'description': text[:500],  # Capture context
+                'vote_details': resolution_metadata.get('vote_details'),
+                'adoption_status': resolution_metadata.get('adoption_status'),
+                'draft_resolution_identifier': draft_id,
+                'related_documents': potential_drafts,
+                # Keep resolution_symbol if detected (e.g. "amendment to resolution 78/...")
+                'resolution_symbol': resolution_metadata.get('resolution_symbol') 
+            }
+            # Initialize events list
+            if 'procedural_events' not in utterance:
+                utterance['procedural_events'] = []
+            utterance['procedural_events'].append(event)
+        else:
+            # Standard resolution metadata
+            utterance['resolution_metadata'] = resolution_metadata
     
     # Also detect all draft resolution mentions for context
     # This helps associate utterances with resolutions even if they don't have full metadata
@@ -915,17 +959,18 @@ def parse_sections(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> None:
     """Post-process sections to associate utterances with resolutions based on context.
     
-    When the President announces multiple draft resolutions (e.g., "five draft resolutions"),
-    subsequent cross-talk utterances should be associated with those resolutions based on
-    mentions of draft resolution identifiers.
+    1. Propagate 'active draft resolution' to procedural events that miss an explicit identifier.
+    2. Handle 'multiple resolutions' announcements by the President.
     """
     for section in sections:
         utterances = section.get('utterances', [])
         if not utterances:
             continue
         
+        # Track active draft resolution within the section
+        active_draft_symbol = None
+
         # Track when we're in a "multiple resolutions" context
-        # Look for President's announcement like "five draft resolutions"
         multiple_resolutions_context = False
         announced_resolution_count = None
         
@@ -934,6 +979,23 @@ def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> Non
             speaker = utterance.get('speaker', {})
             speaker_raw = speaker.get('raw', '').lower()
             
+            # Update active draft if mentioned explicitly in this utterance
+            # This helps link subsequent "vote on the amendment" statements to this draft
+            doc_symbols = utterance.get('documents', [])
+            found_drafts = [d for d in doc_symbols if '/L.' in d]
+            if found_drafts:
+                active_draft_symbol = found_drafts[0]
+
+            # Backfill procedural events with active draft if missing
+            if 'procedural_events' in utterance and active_draft_symbol:
+                for event in utterance['procedural_events']:
+                    if not event.get('draft_resolution_identifier'):
+                        event['draft_resolution_identifier'] = active_draft_symbol
+                        if 'related_documents' not in event:
+                            event['related_documents'] = []
+                        if active_draft_symbol not in event['related_documents']:
+                            event['related_documents'].append(active_draft_symbol)
+
             # Check if President announces multiple resolutions
             if 'president' in speaker_raw:
                 # Look for patterns like "five draft resolutions" or "several draft resolutions"
@@ -965,21 +1027,28 @@ def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> Non
             if multiple_resolutions_context:
                 draft_mentions = utterance.get('draft_resolution_mentions', [])
                 if draft_mentions:
-                    # If utterance mentions specific draft resolutions, ensure they're in metadata
-                    if 'resolution_metadata' not in utterance:
+                    # 1. Handle standard resolution metadata
+                    if 'resolution_metadata' not in utterance and 'procedural_events' not in utterance:
                         # Create basic metadata from mentions
                         # Use the first mention as primary, but note all mentions
                         utterance['resolution_metadata'] = {
                             'draft_resolution_identifier': draft_mentions[0],
                             'mentioned_resolutions': draft_mentions
                         }
-                    elif 'draft_resolution_identifier' in utterance['resolution_metadata']:
+                    elif 'resolution_metadata' in utterance and 'draft_resolution_identifier' in utterance['resolution_metadata']:
                         # If we already have metadata, add all mentions
                         if 'mentioned_resolutions' not in utterance['resolution_metadata']:
                             utterance['resolution_metadata']['mentioned_resolutions'] = []
                         for mention in draft_mentions:
                             if mention not in utterance['resolution_metadata']['mentioned_resolutions']:
                                 utterance['resolution_metadata']['mentioned_resolutions'].append(mention)
+
+                    # 2. Handle procedural events
+                    if 'procedural_events' in utterance:
+                        for event in utterance['procedural_events']:
+                            if not event.get('draft_resolution_identifier'):
+                                event['draft_resolution_identifier'] = draft_mentions[0]
+                                event['mentioned_resolutions'] = draft_mentions
 
 
 def compute_stats(sections: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1165,4 +1234,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

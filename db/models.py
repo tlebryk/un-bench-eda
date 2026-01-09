@@ -63,13 +63,38 @@ class Actor(Base):
         return f"<Actor(name='{self.name}', type='{self.actor_type}')>"
 
 
+class VoteEvent(Base):
+    """Specific voting event (adoption, amendment, motion) within a meeting"""
+    __tablename__ = 'vote_events'
+
+    id = Column(Integer, primary_key=True)
+    meeting_id = Column(Integer, ForeignKey('documents.id', ondelete='CASCADE'), nullable=False, index=True)
+    utterance_id = Column(Integer, ForeignKey('utterances.id', ondelete='CASCADE'), nullable=False, index=True)
+    target_document_id = Column(Integer, ForeignKey('documents.id', ondelete='SET NULL'), nullable=True, index=True)
+    event_type = Column(String)  # 'adoption', 'oral_amendment', 'motion_division'
+    description = Column(Text)
+    result = Column(String)  # 'adopted', 'rejected'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    meeting = relationship("Document", foreign_keys=[meeting_id])
+    utterance = relationship("Utterance", foreign_keys=[utterance_id])
+    target_document = relationship("Document", foreign_keys=[target_document_id])
+    votes = relationship("Vote", back_populates="vote_event", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<VoteEvent(type='{self.event_type}', result='{self.result}')>"
+
+
 class Vote(Base):
     """Voting records (committee and plenary)"""
     __tablename__ = 'votes'
 
     id = Column(Integer, primary_key=True)
-    document_id = Column(Integer, ForeignKey('documents.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Nullable document_id to allow votes on oral amendments (linked via vote_event)
+    document_id = Column(Integer, ForeignKey('documents.id', ondelete='CASCADE'), nullable=True, index=True)
     actor_id = Column(Integer, ForeignKey('actors.id'), nullable=False, index=True)
+    vote_event_id = Column(Integer, ForeignKey('vote_events.id', ondelete='CASCADE'), nullable=True, index=True)
     vote_type = Column(String, nullable=False)      # in_favour, against, abstaining
     vote_context = Column(String)                    # plenary, committee
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -77,9 +102,10 @@ class Vote(Base):
     # Relationships
     document = relationship("Document", back_populates="votes")
     actor = relationship("Actor", back_populates="votes")
+    vote_event = relationship("VoteEvent", back_populates="votes")
 
     def __repr__(self):
-        return f"<Vote(doc={self.document_id}, actor={self.actor_id}, type='{self.vote_type}')>"
+        return f"<Vote(doc={self.document_id}, event={self.vote_event_id}, actor={self.actor_id}, type='{self.vote_type}')>"
 
 
 class DocumentRelationship(Base):

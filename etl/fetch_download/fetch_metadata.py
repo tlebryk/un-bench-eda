@@ -416,7 +416,8 @@ def fetch_voting_records(session: int, output_file: str = None, base_dir: str = 
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
     url = "https://digitallibrary.un.org/search"
-    params = {'c': 'Voting Data', 'p': f'191__a:"A/RES/{session}/*"'}
+    # Search in field 791 (Related documentation) which contains the resolution symbol for voting records
+    params = {'c': 'Voting Data', 'p': f'791__a:"A/RES/{session}/*"'}
 
     print(f"Fetching voting records for session {session}...")
     

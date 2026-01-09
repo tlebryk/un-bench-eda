@@ -2,7 +2,8 @@
 
 from pathlib import Path
 from etl.base import BaseLoader
-from db.models import Document, Vote, Utterance, UtteranceDocument
+from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent
+import re
 
 
 class MeetingLoader(BaseLoader):
@@ -153,6 +154,11 @@ class MeetingLoader(BaseLoader):
                             utterance_data
                         )
                         votes_extracted += vote_count
+
+                    # Extract procedural events
+                    procedural_events = utterance_data.get("procedural_events")
+                    if procedural_events:
+                        self._extract_procedural_events(utterance, procedural_events, doc)
 
         if utterances_extracted > 0 or votes_extracted > 0:
             self.stats["loaded"] += 1
@@ -310,7 +316,7 @@ class MeetingLoader(BaseLoader):
         
         return self._load_votes_from_meeting(resolution_doc.id, vote_details)
     
-    def _load_votes_from_meeting(self, doc_id: int, vote_details: dict) -> int:
+    def _load_votes_from_meeting(self, doc_id: int, vote_details: dict, vote_event_id: int = None) -> int:
         """Load vote records from meeting vote_details"""
         vote_types = {
             'in_favour': vote_details.get('in_favour', []),
@@ -331,17 +337,23 @@ class MeetingLoader(BaseLoader):
                 actor_id = self.get_or_create_actor(country)
 
                 # Check if vote already exists (avoid duplicates)
-                existing_vote = self.session.query(Vote).filter_by(
-                    document_id=doc_id,
-                    actor_id=actor_id,
-                    vote_type=vote_type
-                ).first()
+                criteria = {'actor_id': actor_id, 'vote_type': vote_type}
+                if doc_id:
+                    criteria['document_id'] = doc_id
+                if vote_event_id:
+                    criteria['vote_event_id'] = vote_event_id
+
+                if not doc_id and not vote_event_id:
+                    continue
+
+                existing_vote = self.session.query(Vote).filter_by(**criteria).first()
 
                 if existing_vote:
                     continue
 
                 vote = Vote(
                     document_id=doc_id,
+                    vote_event_id=vote_event_id,
                     actor_id=actor_id,
                     vote_type=vote_type,
                     vote_context='plenary'
@@ -350,6 +362,54 @@ class MeetingLoader(BaseLoader):
                 vote_count += 1
 
         return vote_count
+
+    def _extract_procedural_events(self, utterance: Utterance, events: list, meeting_doc: Document):
+        """Extract procedural events and linked votes"""
+        for event_data in events:
+            # Try to resolve target document (Draft)
+            target_doc_id = None
+            draft_id = event_data.get('draft_resolution_identifier')
+            
+            if draft_id:
+                # Case 1: Full symbol (e.g. A/78/L.108)
+                if '/' in draft_id:
+                    symbol = self.normalize_symbol(draft_id)
+                    target_doc = self.session.query(Document).filter_by(symbol=symbol).first()
+                    if target_doc:
+                        target_doc_id = target_doc.id
+                        print(f"  ✓ Linked event to draft: {symbol} (ID: {target_doc.id})")
+                    else:
+                        print(f"  ✗ Could not find target draft for event: {symbol} (raw: {draft_id})")
+                
+                # Case 2: Short form (e.g. L.19) -> Construct full symbol
+                elif re.match(r'L\.\d+', draft_id):
+                    symbol = f"A/{meeting_doc.session}/{draft_id}"
+                    target_doc = self.session.query(Document).filter_by(symbol=symbol).first()
+                    if target_doc:
+                        target_doc_id = target_doc.id
+            
+            # If no draft ID found but we have a resolution symbol, try that
+            if not target_doc_id and event_data.get('resolution_symbol'):
+                res_symbol = self.normalize_symbol(event_data['resolution_symbol'])
+                target_doc = self.session.query(Document).filter_by(symbol=res_symbol).first()
+                if target_doc:
+                    target_doc_id = target_doc.id
+
+            vote_event = VoteEvent(
+                meeting_id=meeting_doc.id,
+                utterance_id=utterance.id,
+                target_document_id=target_doc_id,
+                event_type=event_data.get('event_type'),
+                description=event_data.get('description'),
+                result=event_data.get('adoption_status')
+            )
+            self.session.add(vote_event)
+            self.session.flush()
+
+            # Extract votes if present
+            vote_details = event_data.get('vote_details')
+            if vote_details:
+                 self._load_votes_from_meeting(None, vote_details, vote_event_id=vote_event.id)
 
     def parse_meeting_date(self, datetime_str: str):
         """Parse meeting datetime: 'Tuesday, 9 January 2024, 10 a.m.'"""
