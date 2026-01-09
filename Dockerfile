@@ -49,10 +49,11 @@ RUN apt-get update && apt-get install -y \
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv
 
-# Copy application code (ui/, db/, rag/ modules needed by the app)
+# Copy application code (ui/, db/, rag/, utils/ modules needed by the app)
 COPY ui/ ./ui/
 COPY db/ ./db/
 COPY rag/ ./rag/
+COPY utils/ ./utils/
 
 # Create necessary directories for logs
 RUN mkdir -p /app/logs /app/rag/logs
