@@ -135,24 +135,32 @@ class CommitteeMeetingLoader(MeetingLoader):
                     position_in_meeting=position_in_meeting
                 ).first()
 
-                if not existing_utt:
-                    utterance = self._extract_utterance(
-                        doc.id,
-                        section_id,
-                        agenda_item_number,
+                if existing_utt:
+                    linked_docs = self._link_utterance_to_documents(
+                        existing_utt,
                         utterance_data,
-                        position_in_meeting,
-                        position_in_section
+                        section_documents
                     )
-                    
-                    if utterance:
-                        utterances_extracted += 1
-                        linked_docs = self._link_utterance_to_documents(
-                            utterance,
-                            utterance_data,
-                            section_documents
-                        )
-                        self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
+                    self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
+                    continue
+
+                utterance = self._extract_utterance(
+                    doc.id,
+                    section_id,
+                    agenda_item_number,
+                    utterance_data,
+                    position_in_meeting,
+                    position_in_section
+                )
+                
+                if utterance:
+                    utterances_extracted += 1
+                    linked_docs = self._link_utterance_to_documents(
+                        utterance,
+                        utterance_data,
+                        section_documents
+                    )
+                    self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
                         # Committee SRs usually don't have recorded votes in utterances in the same format
                         # but we can try extracting if they do
                         

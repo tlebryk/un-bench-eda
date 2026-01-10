@@ -10,7 +10,10 @@ from openai import OpenAI
 from rag.multistep.tools import (
     get_related_documents_tool, execute_get_related_documents,
     get_votes_tool, execute_get_votes,
+    get_vote_events_tool, execute_get_vote_events,
     get_utterances_tool, execute_get_utterances,
+    get_related_utterances_tool, execute_get_related_utterances,
+    get_document_details_tool, execute_get_document_details,
     execute_sql_query_tool, execute_execute_sql_query,
     answer_with_evidence_tool
 )
@@ -41,8 +44,11 @@ class MultiStepOrchestrator:
         self.tools = [
             execute_sql_query_tool(),
             get_related_documents_tool(),
+            get_document_details_tool(),
             get_votes_tool(),
+            get_vote_events_tool(),
             get_utterances_tool(),
+            get_related_utterances_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -50,9 +56,26 @@ class MultiStepOrchestrator:
         self.executors = {
             "execute_sql_query": execute_execute_sql_query,
             "get_related_documents": execute_get_related_documents,
+            "get_document_details": execute_get_document_details,
             "get_votes": execute_get_votes,
+            "get_vote_events": execute_get_vote_events,
             "get_utterances": execute_get_utterances,
+            "get_related_utterances": execute_get_related_utterances,
         }
+
+    @staticmethod
+    def _serialize_response_output(response_output: Any) -> str:
+        if response_output is None:
+            return "null"
+        payload = []
+        for item in response_output:
+            if hasattr(item, "model_dump"):
+                payload.append(item.model_dump())
+            elif hasattr(item, "__dict__"):
+                payload.append(item.__dict__)
+            else:
+                payload.append(str(item))
+        return json.dumps(payload, ensure_ascii=True)
 
     def answer_multistep(
         self,
@@ -122,6 +145,14 @@ class MultiStepOrchestrator:
                     input=input_list,
                 )
 
+                if hasattr(response, "output"):
+                    logger.info(
+                        "OAI response output: %s",
+                        self._serialize_response_output(response.output)
+                    )
+                else:
+                    logger.warning("OAI response missing output attribute for logging.")
+
                 # Add model's output to conversation
                 if hasattr(response, 'output'):
                     input_list += response.output
@@ -131,6 +162,7 @@ class MultiStepOrchestrator:
 
                 # Check for function calls
                 has_function_call = False
+                assistant_text = None
 
                 # Iterate through output items to find function calls
                 # response.output is a list of items (Message, FunctionCall, etc.)
@@ -191,6 +223,12 @@ class MultiStepOrchestrator:
                             })
 
                         logger.info(f"{'='*60}\n")
+                    elif hasattr(item, 'type') and item.type == "message":
+                        for content_item in getattr(item, "content", []) or []:
+                            if isinstance(content_item, dict) and content_item.get("type") == "output_text":
+                                assistant_text = content_item.get("text")
+                            elif hasattr(content_item, "type") and getattr(content_item, "type") == "output_text":
+                                assistant_text = getattr(content_item, "text", None)
 
                 # Check if we should exit the outer loop
                 # If the last output item processed was answer_with_evidence, we're done
@@ -210,6 +248,16 @@ class MultiStepOrchestrator:
                 # If model didn't call any function, it might be confused or trying to talk
                 # In responses API, if it returns text message, it's also in output
                 if not has_function_call:
+                    if assistant_text:
+                        logger.info("No function call; returning assistant clarification.")
+                        return {
+                            "answer": assistant_text,
+                            "evidence": [],
+                            "sources": [],
+                            "steps": steps_taken,
+                            "input_list": input_list,
+                            "accumulated_evidence": accumulated_evidence
+                        }
                     logger.info("No function call in response, stopping.")
                     break
 
@@ -513,4 +561,3 @@ class MultiStepOrchestrator:
                 "input_list": [],
                 "accumulated_evidence": {}
             }
-

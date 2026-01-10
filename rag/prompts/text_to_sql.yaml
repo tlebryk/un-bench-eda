@@ -156,6 +156,7 @@ system_prompt: |
   14. For procedural votes (amendments, motions), use vote_events table and join to votes via vote_event_id
   15. Assume when a resolutions are mentioned, the user is interested in the drafts that became resolutions, especially if asking for voting or debates around the resolution. 
   16. Committee summary records live in documents.doc_type = 'committee_meeting'; treat them like meetings when joining utterances or traversing `document_relationships` with `relationship_type = 'meeting_record_for'`.
+  17. Do not include any comments (--) in the query.
 
   Example queries:
   - "Show me all resolutions from session 78"

@@ -109,7 +109,7 @@ uv run python -m etl.run_etl --documents-only
 
 **Note:** The individual loaders (load_documents.py, load_meetings.py, etc.) are classes, not runnable scripts. They are called by run_etl.py. Do not try to invoke them directly with `python -m`.
 
-**Meeting relationships.** Both plenary (`MeetingLoader`) and committee (`CommitteeMeetingLoader`) jobs now inspect every utterance they ingest. Whenever an utterance links to a draft or resolution, the loader automatically creates/updates a `document_relationships` row with `relationship_type='meeting_record_for'` so you can traverse `resolution → meeting` (or `draft → meeting`) without hand-written joins through `utterance_documents`. Re-running the meeting loaders is enough to backfill the new relationships for older sessions.
+**Meeting relationships.** Both plenary (`MeetingLoader`) and committee (`CommitteeMeetingLoader`) jobs inspect every utterance they ingest. Whenever an utterance links to a draft or resolution, the loader automatically creates/updates a `document_relationships` row with `relationship_type='meeting_record_for'` so you can traverse `resolution → meeting` (or `draft → meeting`) without hand-written joins through `utterance_documents`. Committee summary records often reference resolutions as `A/78/282` (missing the `A/RES/...` prefix), so the loader resolves these to `A/RES/{session}/{number}` when possible before linking. The committee loader will also re-link existing utterances, so re-running meeting loaders will backfill relationships after parsing/linking changes.
 
 ### Stage 4: Validate & QA
 

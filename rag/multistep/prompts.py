@@ -23,6 +23,7 @@ Guidelines:
 3. For complex questions, chain tools: SQL to find → specific tools to gather details → answer
 4. When you have enough evidence, call answer_with_evidence
 5. Use proper document symbol format with slashes (A/RES/78/220, not A_RES_78_220)
+6. Avoid asking clarifying questions before using tools. Make reasonable assumptions, proceed, and include any clarifying questions at the end of the final answer if still needed.
 
 Examples:
 
@@ -44,4 +45,3 @@ Q: "Which countries most often vote against human rights resolutions?"
 → execute_sql_query("Find voting patterns on human rights resolutions by country")
 → answer_with_evidence(ready=true)
 """
-

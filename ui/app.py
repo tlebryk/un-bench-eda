@@ -111,6 +111,7 @@ ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'
 SHARED_PASSWORD = os.getenv('SHARED_PASSWORD', '')
 SESSION_COOKIE_NAME = "ui_session"
 SESSION_COOKIE_MAX_AGE = 12 * 60 * 60  # 12 hours
+ENABLE_MULTITURN = os.getenv('ENABLE_MULTITURN', 'false').lower() == 'true'
 
 # RAG prompt style configuration
 RAG_PROMPT_STYLE = os.getenv('RAG_PROMPT_STYLE', 'analytical')
@@ -1028,7 +1029,7 @@ def api_rag_answer(
             conv = None
             previous_symbols = None
 
-            if conversation_id:
+            if ENABLE_MULTITURN and conversation_id:
                 # Validate existing conversation
                 conv = get_conversation(conversation_id)
                 if not conv:
@@ -1043,7 +1044,7 @@ def api_rag_answer(
                     )
                 previous_symbols = conv.active_symbols
                 logger.info(f"Continuing conversation {conversation_id}, turn {conv.total_turns + 1}")
-            else:
+            elif ENABLE_MULTITURN:
                 # Create new conversation
                 conv = create_conversation("simple")
                 logger.info(f"Created new conversation {conv.conversation_id}")
@@ -1066,31 +1067,35 @@ def api_rag_answer(
                 new_symbols = set(result_dict.get("sources", []))
 
                 # Save turn to conversation
-                from datetime import datetime
-                turn = SimpleTurn(
-                    turn_number=conv.total_turns + 1,
-                    timestamp=datetime.utcnow(),
-                    question=natural_language_query,
-                    sql_query=sql,
-                    query_results={"row_count": result_dict.get("row_count", 0)},
-                    answer=result_dict["answer"],
-                    evidence=result_dict["evidence"],
-                    sources=result_dict["sources"]
-                )
-                save_simple_turn(conv.conversation_id, turn, new_symbols)
+                if ENABLE_MULTITURN and conv:
+                    from datetime import datetime
+                    turn = SimpleTurn(
+                        turn_number=conv.total_turns + 1,
+                        timestamp=datetime.utcnow(),
+                        question=natural_language_query,
+                        sql_query=sql,
+                        query_results={"row_count": result_dict.get("row_count", 0)},
+                        answer=result_dict["answer"],
+                        evidence=result_dict["evidence"],
+                        sources=result_dict["sources"]
+                    )
+                    save_simple_turn(conv.conversation_id, turn, new_symbols)
 
-                return {
+                response_payload = {
                     "answer": result_dict["answer"],
                     "evidence": result_dict["evidence"],
                     "sources": result_dict["sources"],
                     "original_question": natural_language_query,
                     "sql": sql,
-                    "row_count": result_dict.get("row_count", 0),
-                    # Conversation tracking fields
-                    "conversation_id": conv.conversation_id,
-                    "turn_number": conv.total_turns,
-                    "previous_symbols": list(conv.active_symbols)
+                    "row_count": result_dict.get("row_count", 0)
                 }
+                if ENABLE_MULTITURN and conv:
+                    response_payload.update({
+                        "conversation_id": conv.conversation_id,
+                        "turn_number": conv.total_turns,
+                        "previous_symbols": list(conv.active_symbols)
+                    })
+                return response_payload
             except Exception as exc:
                 logger.error(f"Orchestrator fast mode failed: {str(exc)}", exc_info=True)
                 # Fall through to legacy on error or return specific error?
@@ -1175,7 +1180,7 @@ def api_multistep_answer(
         conversation_history = None
         previous_symbols = None
 
-        if conversation_id:
+        if ENABLE_MULTITURN and conversation_id:
             # Validate existing conversation
             conv = get_conversation(conversation_id)
             if not conv:
@@ -1192,7 +1197,7 @@ def api_multistep_answer(
             conversation_history = conv.multistep_input_list if conv.multistep_input_list else None
             previous_symbols = conv.active_symbols
             logger.info(f"Continuing conversation {conversation_id}, turn {conv.total_turns + 1}")
-        else:
+        elif ENABLE_MULTITURN:
             # Create new conversation
             conv = create_conversation("multistep")
             logger.info(f"Created new conversation {conv.conversation_id}")
@@ -1209,24 +1214,28 @@ def api_multistep_answer(
         new_symbols = set(result.get("sources", []))
 
         # Save conversation state
-        save_multistep_state(
-            conversation_id=conv.conversation_id,
-            input_list=result.get("input_list", []),
-            accumulated_evidence=result.get("accumulated_evidence", {}),
-            new_symbols=new_symbols
-        )
+        if ENABLE_MULTITURN and conv:
+            save_multistep_state(
+                conversation_id=conv.conversation_id,
+                input_list=result.get("input_list", []),
+                accumulated_evidence=result.get("accumulated_evidence", {}),
+                new_symbols=new_symbols
+            )
 
-        return {
+        response_payload = {
             "answer": result["answer"],
             "evidence": result["evidence"],
             "sources": result["sources"],
             "steps": result["steps"],
-            "row_count": len(result.get("evidence", [])),
-            # Conversation tracking fields
-            "conversation_id": conv.conversation_id,
-            "turn_number": conv.total_turns,
-            "previous_symbols": list(conv.active_symbols)
+            "row_count": len(result.get("evidence", []))
         }
+        if ENABLE_MULTITURN and conv:
+            response_payload.update({
+                "conversation_id": conv.conversation_id,
+                "turn_number": conv.total_turns,
+                "previous_symbols": list(conv.active_symbols)
+            })
+        return response_payload
     except Exception as exc:
         logger.error(f"Multi-step query failed: {str(exc)}", exc_info=True)
         return JSONResponse({"error": str(exc)}, status_code=500)

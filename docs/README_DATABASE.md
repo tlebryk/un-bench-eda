@@ -174,7 +174,7 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 
 ### Table overview
 - **documents** – canonical record for every artifact (resolutions, drafts, committee reports, meetings, agenda, decisions). Stores normalized fields plus a JSONB `doc_metadata` blob for source-specific attributes.
-- **document_relationships** – directional edges such as `draft_of`, `committee_report_for`, `meeting_for`, `agenda_item` that power genealogy traversal.
+- **document_relationships** – directional edges such as `draft_of`, `committee_report_for`, `meeting_record_for`, `agenda_item_for` that power genealogy traversal.
 - **actors** – normalized participants (countries, observers, UN officials) so we can join votes + utterances.
 - **votes** – roll-call data from committee/plenary stages; keyed to both `documents` and `actors`.
 - **utterances** – parsed statements from plenary meetings and committee summary records with speaker metadata.

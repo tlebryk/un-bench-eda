@@ -1,7 +1,7 @@
 """Load meetings and extract voting records and utterances from parsed PDF meetings"""
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from etl.base import BaseLoader
 from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent, DocumentRelationship
 import re
@@ -265,6 +265,10 @@ class MeetingLoader(BaseLoader):
             
             # Find the document in database
             doc = self.session.query(Document).filter_by(symbol=doc_symbol).first()
+            if not doc:
+                doc_symbol = self._resolve_resolution_symbol(doc_symbol)
+                if doc_symbol:
+                    doc = self.session.query(Document).filter_by(symbol=doc_symbol).first()
             
             if doc and doc.id not in linked_doc_ids:
                 # Check if link already exists
@@ -311,6 +315,17 @@ class MeetingLoader(BaseLoader):
                         linked_documents.append(resolution_doc)
 
         return linked_documents
+
+    def _resolve_resolution_symbol(self, doc_symbol: str) -> Optional[str]:
+        if not doc_symbol:
+            return None
+        if doc_symbol.startswith("A/RES/"):
+            return None
+        match = re.fullmatch(r"A/(\d+)/(\d+)", doc_symbol)
+        if not match:
+            return None
+        session, number = match.groups()
+        return f"A/RES/{session}/{number}"
 
     def _ensure_meeting_relationships(self, meeting_doc: Document,
                                       linked_docs: List[Document],

@@ -35,8 +35,8 @@ def execute_get_related_documents(symbol: str) -> Dict[str, Any]:
     Traverses document_relationships table to find all related documents:
     - Drafts (relationship_type='draft_of')
     - Committee reports (relationship_type='committee_report_for')
-    - Meetings (relationship_type='meeting_for')
-    - Agenda items (relationship_type='agenda_item')
+    - Meetings (relationship_type='meeting_record_for')
+    - Agenda items (relationship_type='agenda_item_for')
 
     Args:
         symbol: Document symbol (e.g., "A/RES/78/220")
@@ -119,7 +119,7 @@ def execute_get_related_documents(symbol: str) -> Dict[str, Any]:
             rel_type = row[2]
 
             # Categorize by relationship type and doc_type
-            if rel_type == "meeting_for" or doc_type == "meeting":
+            if rel_type == "meeting_record_for" or doc_type in {"meeting", "committee_meeting"}:
                 if doc_symbol not in meetings:
                     meetings.append(doc_symbol)
             elif rel_type == "draft_of" or doc_type == "draft":
@@ -128,7 +128,7 @@ def execute_get_related_documents(symbol: str) -> Dict[str, Any]:
             elif rel_type == "committee_report_for" or doc_type == "committee_report":
                 if doc_symbol not in committee_reports:
                     committee_reports.append(doc_symbol)
-            elif rel_type == "agenda_item" or doc_type == "agenda":
+            elif rel_type == "agenda_item_for" or doc_type in {"agenda", "agenda_item"}:
                 if doc_symbol not in agenda_items:
                     agenda_items.append(doc_symbol)
 
@@ -163,7 +163,7 @@ def get_votes_tool() -> Dict[str, Any]:
     return {
         "type": "function",
         "name": "get_votes",
-        "description": "Get voting records showing which countries voted for, against, or abstained on a resolution. Returns votes grouped by type: 'in_favour', 'against', 'abstaining'.",
+        "description": "Get voting records showing which countries voted for, against, or abstained. Filter by document symbol and/or vote_event_id. Returns votes grouped by type: 'in_favour', 'against', 'abstaining'.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -171,24 +171,33 @@ def get_votes_tool() -> Dict[str, Any]:
                     "type": "string",
                     "description": "Resolution symbol with slashes, e.g., 'A/RES/78/220'"
                 },
+                "vote_event_id": {
+                    "type": "integer",
+                    "description": "Filter by a specific vote event ID (optional), e.g., for procedural votes or amendments"
+                },
                 "vote_type": {
                     "type": "string",
                     "enum": ["in_favour", "against", "abstaining"],
                     "description": "Filter by vote type (optional). Use exact values: 'in_favour' (not 'yes'), 'against' (not 'no'), 'abstaining'"
                 }
             },
-            "required": ["symbol"]
+            "required": []
         }
     }
 
 
-def execute_get_votes(symbol: str, vote_type: Optional[str] = None) -> Dict[str, Any]:
+def execute_get_votes(
+    symbol: Optional[str] = None,
+    vote_type: Optional[str] = None,
+    vote_event_id: Optional[int] = None
+) -> Dict[str, Any]:
     """
     Execute vote query using database.
 
     Args:
         symbol: Resolution symbol
         vote_type: Optional filter by vote type ("in_favour", "against", "abstaining")
+        vote_event_id: Optional filter by vote event ID
 
     Returns:
         Dict with votes grouped by type and total_countries count
@@ -198,16 +207,30 @@ def execute_get_votes(symbol: str, vote_type: Optional[str] = None) -> Dict[str,
 
     session = get_session()
     try:
-        logger.info(f"Getting votes for {symbol}, type={vote_type}")
+        if not symbol and not vote_event_id:
+            return {
+                "symbol": symbol,
+                "votes": {},
+                "total_countries": 0,
+                "error": "Provide at least one of: symbol or vote_event_id"
+            }
+
+        logger.info(f"Getting votes for {symbol}, type={vote_type}, event_id={vote_event_id}")
 
         query = session.query(Vote, Actor).join(
-            Document, Vote.document_id == Document.id
-        ).join(
             Actor, Vote.actor_id == Actor.id
-        ).filter(Document.symbol == symbol)
+        )
+
+        if symbol:
+            query = query.join(
+                Document, Vote.document_id == Document.id
+            ).filter(Document.symbol == symbol)
 
         if vote_type:
             query = query.filter(Vote.vote_type == vote_type)
+
+        if vote_event_id:
+            query = query.filter(Vote.vote_event_id == vote_event_id)
 
         results = query.all()
 
@@ -237,7 +260,158 @@ def execute_get_votes(symbol: str, vote_type: Optional[str] = None) -> Dict[str,
         session.close()
 
 
-# Tool 3: Get Utterances
+# Tool 3: Get Vote Events
+
+def get_vote_events_tool() -> Dict[str, Any]:
+    """Get vote events (adoption, amendment, motions) for meetings or documents."""
+    return {
+        "type": "function",
+        "name": "get_vote_events",
+        "description": "Get vote events (adoption, amendment, motion for division) with optional rollup vote counts. Filter by target document symbol and/or meeting symbols.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Target document symbol (resolution/draft) to filter vote events (optional)"
+                },
+                "meeting_symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of meeting symbols to filter vote events (optional)"
+                },
+                "event_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by event types (optional): ['adoption', 'vote_on_amendment', 'motion_for_division']"
+                },
+                "include_vote_tallies": {
+                    "type": "boolean",
+                    "description": "Include per-event vote counts grouped by vote_type"
+                }
+            },
+            "required": []
+        }
+    }
+
+
+def execute_get_vote_events(
+    symbol: Optional[str] = None,
+    meeting_symbols: Optional[List[str]] = None,
+    event_types: Optional[List[str]] = None,
+    include_vote_tallies: bool = False
+) -> Dict[str, Any]:
+    """
+    Execute vote event query.
+
+    Args:
+        symbol: Optional target document symbol
+        meeting_symbols: Optional list of meeting symbols
+        event_types: Optional list of event types to filter
+        include_vote_tallies: Include per-event vote counts
+
+    Returns:
+        Dict with vote events and count
+    """
+    from db.config import get_session
+
+    if not symbol and not meeting_symbols:
+        return {
+            "events": [],
+            "count": 0,
+            "error": "Provide at least one of: symbol or meeting_symbols"
+        }
+
+    session = get_session()
+    try:
+        logger.info(
+            "Getting vote events for symbol=%s, meetings=%s, event_types=%s, tallies=%s",
+            symbol, meeting_symbols, event_types, include_vote_tallies
+        )
+
+        base_query = """
+            SELECT
+                ve.id,
+                ve.event_type,
+                ve.description,
+                ve.result,
+                m.symbol AS meeting_symbol,
+                d.symbol AS target_symbol
+            FROM vote_events ve
+            JOIN documents m ON m.id = ve.meeting_id
+            LEFT JOIN documents d ON d.id = ve.target_document_id
+            WHERE 1=1
+        """
+
+        if symbol:
+            base_query += " AND d.symbol = :symbol"
+        if meeting_symbols:
+            base_query += " AND m.symbol = ANY(:meeting_symbols)"
+        if event_types:
+            base_query += " AND ve.event_type = ANY(:event_types)"
+
+        if include_vote_tallies:
+            base_query = f"""
+                WITH base_events AS (
+                    {base_query}
+                )
+                SELECT
+                    be.*,
+                    COALESCE(SUM(CASE WHEN v.vote_type = 'in_favour' THEN 1 ELSE 0 END), 0) AS in_favour,
+                    COALESCE(SUM(CASE WHEN v.vote_type = 'against' THEN 1 ELSE 0 END), 0) AS against,
+                    COALESCE(SUM(CASE WHEN v.vote_type = 'abstaining' THEN 1 ELSE 0 END), 0) AS abstaining
+                FROM base_events be
+                LEFT JOIN votes v ON v.vote_event_id = be.id
+                GROUP BY be.id, be.event_type, be.description, be.result, be.meeting_symbol, be.target_symbol
+                ORDER BY be.meeting_symbol, be.id
+            """
+        else:
+            base_query += " ORDER BY m.symbol, ve.id"
+
+        params = {
+            "symbol": symbol,
+            "meeting_symbols": meeting_symbols,
+            "event_types": event_types
+        }
+
+        results = session.execute(text(base_query), params).fetchall()
+
+        events = []
+        for row in results:
+            event = {
+                "id": row[0],
+                "event_type": row[1],
+                "description": row[2],
+                "result": row[3],
+                "meeting_symbol": row[4],
+                "target_symbol": row[5]
+            }
+            if include_vote_tallies:
+                event["vote_tallies"] = {
+                    "in_favour": row[6],
+                    "against": row[7],
+                    "abstaining": row[8]
+                }
+            events.append(event)
+
+        logger.info("Found %s vote events", len(events))
+
+        return {
+            "events": events,
+            "count": len(events)
+        }
+    except Exception as e:
+        logger.error("Error getting vote events: %s", e, exc_info=True)
+        return {
+            "events": [],
+            "count": 0,
+            "error": str(e)
+        }
+    finally:
+        session.close()
+
+
+# Tool 4: Get Utterances
 
 def get_utterances_tool() -> Dict[str, Any]:
     """Get statements from meetings."""
@@ -257,6 +431,10 @@ def get_utterances_tool() -> Dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Filter by speaker country names (optional), e.g., ['France', 'United States']"
+                },
+                "include_full_text": {
+                    "type": "boolean",
+                    "description": "Include full utterance text (default false)"
                 }
             },
             "required": ["meeting_symbols"]
@@ -266,7 +444,8 @@ def get_utterances_tool() -> Dict[str, Any]:
 
 def execute_get_utterances(
     meeting_symbols: List[str],
-    speaker_countries: Optional[List[str]] = None
+    speaker_countries: Optional[List[str]] = None,
+    include_full_text: bool = False
 ) -> Dict[str, Any]:
     """
     Execute utterance query.
@@ -300,19 +479,22 @@ def execute_get_utterances(
 
         logger.info(f"Found {len(utterances)} utterances")
 
+        utterance_payloads = []
+        for u in utterances:
+            payload = {
+                "speaker_affiliation": u.speaker_affiliation,
+                "speaker_name": u.speaker_name,
+                "text": u.text[:500] if u.text else "",  # Truncate for context
+                "meeting_symbol": u.meeting.symbol if u.meeting else None,
+                "agenda_item": u.agenda_item_number
+            }
+            if include_full_text:
+                payload["full_text"] = u.text
+            utterance_payloads.append(payload)
+
         return {
-            "utterances": [
-                {
-                    "speaker_affiliation": u.speaker_affiliation,
-                    "speaker_name": u.speaker_name,
-                    "text": u.text[:500] if u.text else "",  # Truncate for context
-                    "full_text": u.text,
-                    "meeting": meeting_symbols,
-                    "agenda_item": u.agenda_item_number
-                }
-                for u in utterances
-            ],
-            "count": len(utterances)
+            "utterances": utterance_payloads,
+            "count": len(utterance_payloads)
         }
     except Exception as e:
         logger.error(f"Error getting utterances: {e}")
@@ -325,7 +507,278 @@ def execute_get_utterances(
         session.close()
 
 
-# Tool 4: Execute SQL Query
+# Tool 5: Get Related Utterances
+
+def get_related_utterances_tool() -> Dict[str, Any]:
+    """Get utterances related to a document chain."""
+    return {
+        "type": "function",
+        "name": "get_related_utterances",
+        "description": "Get utterances tied to a document and its related chain (drafts, resolutions, meetings, agenda items). Filters utterances to those that explicitly reference any document in the chain.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Document symbol to seed the chain (e.g., 'A/RES/78/220')"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Max traversal depth through document_relationships (default 3)"
+                },
+                "reference_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by reference_type in utterance_documents (optional)"
+                },
+                "speaker_countries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by speaker country names (optional)"
+                },
+                "include_full_text": {
+                    "type": "boolean",
+                    "description": "Include full utterance text (default false)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max utterances to return (default 200)"
+                }
+            },
+            "required": ["symbol"]
+        }
+    }
+
+
+def execute_get_related_utterances(
+    symbol: str,
+    max_depth: int = 3,
+    reference_types: Optional[List[str]] = None,
+    speaker_countries: Optional[List[str]] = None,
+    include_full_text: bool = False,
+    limit: int = 200
+) -> Dict[str, Any]:
+    """
+    Execute utterance query for a document chain.
+
+    Args:
+        symbol: Seed document symbol
+        max_depth: Max traversal depth for related documents
+        reference_types: Optional filter on utterance_documents.reference_type
+        speaker_countries: Optional filter on speaker affiliations
+        limit: Max utterances to return
+
+    Returns:
+        Dict with utterances, referenced symbols, and count
+    """
+    from db.config import get_session
+
+    session = get_session()
+    try:
+        logger.info(
+            "Getting related utterances for %s depth=%s ref_types=%s speakers=%s limit=%s",
+            symbol, max_depth, reference_types, speaker_countries, limit
+        )
+
+        query = """
+            WITH RECURSIVE doc_chain AS (
+                SELECT id, symbol, doc_type, 0 AS depth
+                FROM documents
+                WHERE symbol = :symbol
+
+                UNION ALL
+
+                SELECT
+                    d.id,
+                    d.symbol,
+                    d.doc_type,
+                    dc.depth + 1
+                FROM doc_chain dc
+                JOIN document_relationships dr ON (
+                    dr.target_id = dc.id OR dr.source_id = dc.id
+                )
+                JOIN documents d ON (
+                    d.id = dr.source_id OR d.id = dr.target_id
+                )
+                WHERE dc.depth < :max_depth
+                  AND d.id != dc.id
+            )
+            SELECT
+                u.id,
+                u.speaker_name,
+                u.speaker_affiliation,
+                u.agenda_item_number,
+                u.text,
+                u.position_in_meeting,
+                m.symbol AS meeting_symbol,
+                d.symbol AS referenced_symbol,
+                ud.reference_type
+            FROM utterances u
+            JOIN utterance_documents ud ON ud.utterance_id = u.id
+            JOIN documents d ON d.id = ud.document_id
+            JOIN documents m ON m.id = u.meeting_id
+            WHERE d.id IN (SELECT id FROM doc_chain)
+        """
+
+        if reference_types:
+            query += " AND ud.reference_type = ANY(:reference_types)"
+
+        if speaker_countries:
+            speaker_filters = " OR ".join(
+                [f"u.speaker_affiliation ILIKE :speaker_{i}" for i in range(len(speaker_countries))]
+            )
+            query += f" AND ({speaker_filters})"
+
+        query += " ORDER BY m.date, u.position_in_meeting LIMIT :limit"
+
+        params = {
+            "symbol": symbol,
+            "max_depth": max_depth,
+            "reference_types": reference_types,
+            "limit": limit
+        }
+
+        if speaker_countries:
+            for i, country in enumerate(speaker_countries):
+                params[f"speaker_{i}"] = f"%{country}%"
+
+        results = session.execute(text(query), params).fetchall()
+
+        utterances = []
+        referenced_symbols = set()
+        for row in results:
+            referenced_symbols.add(row[7])
+            payload = {
+                "utterance_id": row[0],
+                "speaker_name": row[1],
+                "speaker_affiliation": row[2],
+                "agenda_item": row[3],
+                "text": row[4][:500] if row[4] else "",
+                "position_in_meeting": row[5],
+                "meeting_symbol": row[6],
+                "referenced_symbol": row[7],
+                "reference_type": row[8]
+            }
+            if include_full_text:
+                payload["full_text"] = row[4]
+            utterances.append(payload)
+
+        logger.info("Found %s related utterances", len(utterances))
+
+        return {
+            "utterances": utterances,
+            "referenced_symbols": sorted(referenced_symbols),
+            "count": len(utterances),
+            "truncated": len(utterances) >= limit
+        }
+    except Exception as e:
+        logger.error("Error getting related utterances: %s", e, exc_info=True)
+        return {
+            "utterances": [],
+            "referenced_symbols": [],
+            "count": 0,
+            "error": str(e)
+        }
+    finally:
+        session.close()
+
+
+# Tool 6: Get Document Details
+
+def get_document_details_tool() -> Dict[str, Any]:
+    """Get basic document metadata (title, date, type)."""
+    return {
+        "type": "function",
+        "name": "get_document_details",
+        "description": "Get basic metadata for one or more document symbols (type, title, date, session).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Single document symbol (optional if symbols provided)"
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of document symbols (optional)"
+                },
+                "include_metadata": {
+                    "type": "boolean",
+                    "description": "Include doc_metadata JSON blob (default false)"
+                }
+            },
+            "required": []
+        }
+    }
+
+
+def execute_get_document_details(
+    symbol: Optional[str] = None,
+    symbols: Optional[List[str]] = None,
+    include_metadata: bool = False
+) -> Dict[str, Any]:
+    """
+    Execute document metadata lookup.
+
+    Args:
+        symbol: Single document symbol
+        symbols: List of document symbols
+        include_metadata: Whether to include doc_metadata blob
+
+    Returns:
+        Dict with documents list and count
+    """
+    from db.config import get_session
+    from db.models import Document
+
+    targets = []
+    if symbol:
+        targets.append(symbol)
+    if symbols:
+        targets.extend(symbols)
+
+    if not targets:
+        return {
+            "documents": [],
+            "count": 0,
+            "error": "Provide symbol or symbols"
+        }
+
+    session = get_session()
+    try:
+        logger.info("Getting document details for %s symbols", len(targets))
+        docs = session.query(Document).filter(Document.symbol.in_(targets)).all()
+
+        payloads = []
+        for doc in docs:
+            payload = {
+                "symbol": doc.symbol,
+                "doc_type": doc.doc_type,
+                "title": doc.title,
+                "date": str(doc.date) if doc.date else None,
+                "session": doc.session
+            }
+            if include_metadata:
+                payload["doc_metadata"] = doc.doc_metadata
+            payloads.append(payload)
+
+        return {
+            "documents": payloads,
+            "count": len(payloads)
+        }
+    except Exception as e:
+        logger.error("Error getting document details: %s", e, exc_info=True)
+        return {
+            "documents": [],
+            "count": 0,
+            "error": str(e)
+        }
+    finally:
+        session.close()
+
+
+# Tool 7: Execute SQL Query
 
 def execute_sql_query_tool() -> Dict[str, Any]:
     """Execute a SQL query to search for documents, votes, or other data."""
