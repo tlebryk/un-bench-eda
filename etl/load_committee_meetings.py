@@ -110,6 +110,8 @@ class CommitteeMeetingLoader(MeetingLoader):
         utterances_extracted = 0
         position_in_meeting = 0
         
+        relationship_targets = set()
+
         for section in data.get("sections", []):
             agenda_item_number = section.get("agenda_item_number")
             agenda_item_numbers = section.get("agenda_item_numbers", [agenda_item_number])
@@ -145,7 +147,12 @@ class CommitteeMeetingLoader(MeetingLoader):
                     
                     if utterance:
                         utterances_extracted += 1
-                        self._link_utterance_to_documents(utterance, utterance_data, section_documents)
+                        linked_docs = self._link_utterance_to_documents(
+                            utterance,
+                            utterance_data,
+                            section_documents
+                        )
+                        self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
                         # Committee SRs usually don't have recorded votes in utterances in the same format
                         # but we can try extracting if they do
                         

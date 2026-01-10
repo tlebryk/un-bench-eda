@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 from dotenv import load_dotenv
 from openai import OpenAI
+import yaml
+from jinja2 import Template
 
 # Load environment variables
 load_dotenv()
@@ -31,16 +33,22 @@ def get_client():
 
 # Load prompts from YAML config
 def load_text_to_sql_config():
-    """Load text-to-SQL configuration from YAML file."""
-    import yaml
+    """Load text-to-SQL configuration from YAML file with Jinja2 support."""
     config_path = Path(__file__).parent / "prompts" / "text_to_sql.yaml"
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        content = f.read()
+    
+    # Render with Jinja2 using environment variables
+    template = Template(content)
+    rendered_content = template.render(env=os.environ)
+    
+    return yaml.safe_load(rendered_content)
 
 # Load configuration
 _config = load_text_to_sql_config()
 SCHEMA_DESCRIPTION = _config['schema_description']
 SYSTEM_PROMPT = _config['system_prompt']
+DEFAULT_MODEL = _config.get('model', 'gpt-5-mini-2025-08-07')
 
 
 class SQLValidationError(Exception):
@@ -121,13 +129,13 @@ def validate_sql(sql: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-07", validate: bool = True) -> Optional[str]:
+def generate_sql(natural_language_query: str, model: Optional[str] = None, validate: bool = True) -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
 
     Args:
         natural_language_query: The natural language question
-        model: OpenAI model to use (default: gpt-5-mini-2025-08-07 for cost/speed)
+        model: OpenAI model to use (default: configured model)
         validate: Whether to validate the generated SQL for security (default: True)
 
     Returns:
@@ -137,6 +145,9 @@ def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-0
         SQLValidationError: If generated SQL fails validation checks
         RuntimeError: If SQL generation fails
     """
+    if model is None:
+        model = DEFAULT_MODEL
+
     logger.info(f"Generating SQL from natural language query (model: {model}): {natural_language_query}")
 
     client = get_client()
@@ -187,7 +198,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Convert natural language to SQL")
     parser.add_argument("query", help="Natural language query")
-    parser.add_argument("--model", "-m", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", "-m", default=None, help="OpenAI model to use (default: configured model)")
     parser.add_argument("--no-validate", action="store_true", help="Skip SQL validation (not recommended)")
     args = parser.parse_args()
 

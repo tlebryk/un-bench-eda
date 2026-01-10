@@ -1,8 +1,9 @@
 """Load meetings and extract voting records and utterances from parsed PDF meetings"""
 
 from pathlib import Path
+from typing import List
 from etl.base import BaseLoader
-from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent
+from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent, DocumentRelationship
 import re
 
 
@@ -111,6 +112,8 @@ class MeetingLoader(BaseLoader):
         votes_extracted = 0
         position_in_meeting = 0
         
+        relationship_targets = set()
+
         for section in data.get("sections", []):
             agenda_item_number = section.get("agenda_item_number")
             # For ranges, agenda_item_number will be like "90-106"
@@ -142,9 +145,13 @@ class MeetingLoader(BaseLoader):
                 
                 if utterance:
                     utterances_extracted += 1
-                    
-                    # Link utterance to referenced documents (both utterance-level and section-level)
-                    self._link_utterance_to_documents(utterance, utterance_data, section_documents)
+
+                    linked_docs = self._link_utterance_to_documents(
+                        utterance,
+                        utterance_data,
+                        section_documents
+                    )
+                    self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
                     
                     # Extract votes if this utterance contains vote information
                     resolution_metadata = utterance_data.get("resolution_metadata")
@@ -219,7 +226,8 @@ class MeetingLoader(BaseLoader):
         
         return utterance
     
-    def _link_utterance_to_documents(self, utterance: Utterance, utterance_data: dict, section_documents: list = None):
+    def _link_utterance_to_documents(self, utterance: Utterance, utterance_data: dict,
+                                    section_documents: list = None) -> List[Document]:
         """Link utterance to documents it references (drafts, resolutions, agenda items)"""
         # Get documents mentioned in the utterance
         documents = utterance_data.get("documents", [])
@@ -230,6 +238,7 @@ class MeetingLoader(BaseLoader):
         
         # Track which documents we've already linked to avoid duplicates
         linked_doc_ids = set()
+        linked_documents: List[Document] = []
         
         for doc_ref in documents:
             # Handle both string and dict formats
@@ -273,6 +282,7 @@ class MeetingLoader(BaseLoader):
                     )
                     self.session.add(link)
                     linked_doc_ids.add(doc.id)
+                    linked_documents.append(doc)
         
         # Also check resolution_metadata for resolution links
         resolution_metadata = utterance_data.get("resolution_metadata", {})
@@ -282,7 +292,7 @@ class MeetingLoader(BaseLoader):
                 resolution_symbol = self.normalize_symbol(resolution_symbol)
                 resolution_doc = self.session.query(Document).filter_by(symbol=resolution_symbol).first()
                 
-                if resolution_doc:
+                if resolution_doc and resolution_doc.id not in linked_doc_ids:
                     # Check if link already exists
                     existing_link = self.session.query(UtteranceDocument).filter_by(
                         utterance_id=utterance.id,
@@ -297,6 +307,41 @@ class MeetingLoader(BaseLoader):
                             context=""
                         )
                         self.session.add(link)
+                        linked_doc_ids.add(resolution_doc.id)
+                        linked_documents.append(resolution_doc)
+
+        return linked_documents
+
+    def _ensure_meeting_relationships(self, meeting_doc: Document,
+                                      linked_docs: List[Document],
+                                      seen_doc_ids: set):
+        """Ensure meeting → document relationships exist for linked drafts/resolutions."""
+        if not linked_docs:
+            return
+
+        for linked_doc in linked_docs:
+            if not linked_doc or not linked_doc.id:
+                continue
+            if linked_doc.doc_type not in {"resolution", "draft"}:
+                continue
+            if linked_doc.id in seen_doc_ids:
+                continue
+
+            existing = self.session.query(DocumentRelationship).filter_by(
+                source_id=meeting_doc.id,
+                target_id=linked_doc.id,
+                relationship_type="meeting_record_for"
+            ).first()
+
+            if not existing:
+                rel = DocumentRelationship(
+                    source_id=meeting_doc.id,
+                    target_id=linked_doc.id,
+                    relationship_type="meeting_record_for"
+                )
+                self.session.add(rel)
+
+            seen_doc_ids.add(linked_doc.id)
     
     def _extract_votes_from_utterance(self, resolution_metadata: dict, utterance_data: dict) -> int:
         """Extract vote records from utterance resolution_metadata"""

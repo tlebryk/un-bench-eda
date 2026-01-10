@@ -1,5 +1,7 @@
 # Text-to-SQL prompt configuration for converting natural language to PostgreSQL queries
 
+model: "gpt-5-mini-2025-08-07"
+
 schema_description: |
   PostgreSQL database schema for UN General Assembly documents:
 
@@ -11,6 +13,7 @@ schema_description: |
        * 'resolution' - UN resolutions (e.g., A/RES/78/220)
        * 'draft' - Draft resolutions (e.g., A/78/L.2, A/C.3/78/L.41)
        * 'meeting' - Plenary meetings (e.g., A/78/PV.16)
+       * 'committee_meeting' - Committee summary records (e.g., A/C.3/78/SR.11)
        * 'committee_report' - Committee reports
        * 'agenda_item' - Agenda items (e.g., A/78/251_item_125)
      - session (integer, indexed) - Session number (e.g., 78, 79)
@@ -60,7 +63,7 @@ schema_description: |
      - relationship_type (text, indexed) - Relationship type. MUST use exact values:
        * 'draft_of' - draft → resolution
        * 'committee_report_for' - committee report → resolution
-       * 'meeting_record_for' - meeting → resolution
+       * 'meeting_record_for' - meeting (plenary or committee) → draft/resolution discussed in that meeting
        * 'agenda_item_for' - agenda item → resolution
      - rel_metadata (jsonb)
      - created_at (timestamp)
@@ -110,7 +113,7 @@ schema_description: |
   Example document symbols:
   - Resolutions: A/RES/78/3, A/RES/78/220, A/RES/78/271
   - Drafts: A/78/L.2, A/C.3/78/L.41
-  - Meetings: A/78/PV.16, A/78/PV.93
+  - Meetings: A/78/PV.16, A/78/PV.93, A/C.3/78/SR.11
   - Agenda items: A/78/251_item_125
 
   Common query patterns:
@@ -118,7 +121,8 @@ schema_description: |
   - Join votes with actors: JOIN actors ON actors.id = votes.actor_id
   - Join votes with vote_events: JOIN vote_events ON vote_events.id = votes.vote_event_id
   - Join documents with relationships: JOIN document_relationships ON document_relationships.source_id = documents.id OR document_relationships.target_id = documents.id
-  - Join utterances with meetings: JOIN documents ON documents.id = utterances.meeting_id WHERE documents.doc_type = 'meeting'
+  - Join utterances with meetings: JOIN documents ON documents.id = utterances.meeting_id WHERE documents.doc_type IN ('meeting', 'committee_meeting')
+  - Use `document_relationships.relationship_type='meeting_record_for'` to hop from a resolution/draft to every plenary or committee meeting that debated it; fall back to `utterance_documents` when you need per-speaker context.
   - Join utterances with actors: JOIN actors ON actors.id = utterances.speaker_actor_id
   - Join documents with subjects: JOIN document_subjects ON document_subjects.document_id = documents.id JOIN subjects ON subjects.id = document_subjects.subject_id
   - Join documents with sponsors: JOIN sponsorships ON sponsorships.document_id = documents.id JOIN actors ON actors.id = sponsorships.actor_id
@@ -129,7 +133,7 @@ system_prompt: |
   You are a PostgreSQL expert. Convert natural language questions into valid PostgreSQL SELECT queries.
 
   CRITICAL: Use EXACT enum values from the schema. Do NOT use variations:
-  - doc_type: 'resolution' (NOT 'resolutions'), 'draft', 'meeting', 'committee_report', 'agenda_item'
+  - doc_type: 'resolution' (NOT 'resolutions'), 'draft', 'meeting', 'committee_meeting', 'committee_report', 'agenda_item'
   - vote_type: 'in_favour' (NOT 'yes'), 'against' (NOT 'no'), 'abstaining'
   - event_type: 'adoption', 'vote_on_amendment', 'motion_for_division'
   - relationship_type: 'draft_of', 'committee_report_for', 'meeting_record_for', 'agenda_item_for'
@@ -151,6 +155,7 @@ system_prompt: |
   13. Avoid selecting the large doc_metadata or body_text fields unless specifically requested (use title for previews)
   14. For procedural votes (amendments, motions), use vote_events table and join to votes via vote_event_id
   15. Assume when a resolutions are mentioned, the user is interested in the drafts that became resolutions, especially if asking for voting or debates around the resolution. 
+  16. Committee summary records live in documents.doc_type = 'committee_meeting'; treat them like meetings when joining utterances or traversing `document_relationships` with `relationship_type = 'meeting_record_for'`.
 
   Example queries:
   - "Show me all resolutions from session 78"

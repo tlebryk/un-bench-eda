@@ -4,8 +4,9 @@ import argparse
 import yaml
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from rag.test_rag_queries import run_rag_query, compare_prompt_styles
+from rag.prompt_config import get_default_model
 
 
 def load_test_queries(queries_file: Path) -> List[Dict[str, Any]]:
@@ -28,10 +29,13 @@ def run_batch_test(
     Args:
         queries_file: Path to YAML file with test queries
         prompt_style: Prompt style to use
-        model: OpenAI model to use
+        model: OpenAI model to use (default: configured model)
         output_dir: Directory to save results
         compare: If True, compare all prompt styles for each query
     """
+    if model is None:
+        model = get_default_model()
+
     queries = load_test_queries(queries_file)
 
     if output_dir is None:
@@ -118,8 +122,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--model",
-        default="gpt-5-mini-2025-08-07",
-        help="OpenAI model to use"
+        default=None,
+        help="OpenAI model to use (default: configured model)"
     )
     parser.add_argument(
         "-o", "--output",

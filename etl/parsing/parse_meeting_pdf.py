@@ -958,22 +958,26 @@ def parse_sections(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
 def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> None:
     """Post-process sections to associate utterances with resolutions based on context.
-    
+
     1. Propagate 'active draft resolution' to procedural events that miss an explicit identifier.
     2. Handle 'multiple resolutions' announcements by the President.
+    3. Track 'explanation of vote before/after voting' timing context.
     """
     for section in sections:
         utterances = section.get('utterances', [])
         if not utterances:
             continue
-        
+
         # Track active draft resolution within the section
         active_draft_symbol = None
 
         # Track when we're in a "multiple resolutions" context
         multiple_resolutions_context = False
         announced_resolution_count = None
-        
+
+        # Track explanation of vote timing context
+        current_eov_context = None  # None, 'before_vote', 'after_vote'
+
         for i, utterance in enumerate(utterances):
             text = utterance.get('text', '')
             speaker = utterance.get('speaker', {})
@@ -1021,7 +1025,65 @@ def associate_utterances_with_resolutions(sections: List[Dict[str, Any]]) -> Non
             ):
                 multiple_resolutions_context = False
                 announced_resolution_count = None
-            
+
+            # Track explanation of vote timing context
+            eov_section_opened = False
+            eov_section_closed = False
+
+            if 'president' in speaker_raw:
+                # Check if President announces EoV section opening
+                # Look for "give/giving the floor" + "explanation of vote/position" + "before"
+                if re.search(r'(?:give|giving).*floor.*explanation of (?:vote|position).*before', text, re.IGNORECASE):
+                    current_eov_context = 'before_vote'
+                    eov_section_opened = True
+                # Look for "give/giving the floor" + "explanation of vote/position" + "after"
+                elif re.search(r'(?:give|giving).*floor.*explanation of (?:vote|position).*after', text, re.IGNORECASE):
+                    current_eov_context = 'after_vote'
+                    eov_section_opened = True
+                # Check if President closes EoV section
+                # "We have heard the last speaker in explanation of vote"
+                elif re.search(r'(?:heard|hear).*last speaker.*explanation of (?:vote|position)', text, re.IGNORECASE):
+                    eov_section_closed = True
+                    # Don't clear context yet - tag this closing utterance first
+
+            # Tag the President announcement itself
+            if eov_section_opened and 'president' in speaker_raw:
+                if 'utterance_metadata' not in utterance:
+                    utterance['utterance_metadata'] = {}
+                utterance['utterance_metadata']['eov_section_announcement'] = current_eov_context
+
+            # Tag delegate utterances within EoV context
+            if current_eov_context and 'president' not in speaker_raw:
+                # Delegate is explaining their vote
+                if 'utterance_metadata' not in utterance:
+                    utterance['utterance_metadata'] = {}
+                utterance['utterance_metadata']['speech_timing'] = current_eov_context
+                utterance['utterance_metadata']['is_explanation_of_vote'] = True
+
+            # Clear context after tagging the closing utterance
+            if eov_section_closed:
+                if 'utterance_metadata' not in utterance:
+                    utterance['utterance_metadata'] = {}
+                utterance['utterance_metadata']['eov_section_closed'] = True
+                current_eov_context = None
+
+            # Also detect self-declared EoVs (when delegate announces in their own text)
+            if 'president' not in speaker_raw and re.search(r'\bexplanation of (?:vote|position)\b', text, re.IGNORECASE):
+                if 'utterance_metadata' not in utterance:
+                    utterance['utterance_metadata'] = {}
+
+                # Mark as self-declared
+                utterance['utterance_metadata']['self_declared_explanation'] = True
+
+                # If no section context, try to detect timing from their own text
+                if not current_eov_context:
+                    if re.search(r'explanation.*before', text, re.IGNORECASE):
+                        utterance['utterance_metadata']['speech_timing'] = 'before_vote'
+                        utterance['utterance_metadata']['is_explanation_of_vote'] = True
+                    elif re.search(r'explanation.*after', text, re.IGNORECASE):
+                        utterance['utterance_metadata']['speech_timing'] = 'after_vote'
+                        utterance['utterance_metadata']['is_explanation_of_vote'] = True
+
             # If we're in a multiple resolutions context, try to associate utterances
             # with resolutions based on mentions
             if multiple_resolutions_context:

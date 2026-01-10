@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from rag.text_to_sql import generate_sql
 from rag.rag_qa import answer_question
-from rag.prompt_config import load_prompt_config
+from rag.prompt_config import load_prompt_config, get_default_model
 from sqlalchemy import create_engine, text
 
 # Load environment variables
@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 def run_rag_query(
     question: str,
     prompt_style: str = "analytical",
-    model: str = "gpt-5-mini-2025-08-07",
+    model: Optional[str] = None,
     output_file: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
@@ -72,12 +72,15 @@ def run_rag_query(
     Args:
         question: Natural language question
         prompt_style: Prompt style from config ("strict" or "analytical")
-        model: OpenAI model to use
+        model: OpenAI model to use (default: configured model)
         output_file: Optional file to save results
 
     Returns:
         Dictionary with question, sql, results, and answer
     """
+    if model is None:
+        model = get_default_model()
+
     logger.info(f"Running RAG query: {question}")
     logger.info(f"Prompt style: {prompt_style}, Model: {model}")
 
@@ -126,7 +129,7 @@ def run_rag_query(
 
 def compare_prompt_styles(
     question: str,
-    model: str = "gpt-5-mini-2025-08-07",
+    model: Optional[str] = None,
     output_dir: Optional[Path] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
@@ -134,12 +137,15 @@ def compare_prompt_styles(
 
     Args:
         question: Natural language question
-        model: OpenAI model to use
+        model: OpenAI model to use (default: configured model)
         output_dir: Optional directory to save comparison results
 
     Returns:
         Dictionary with results for each prompt style
     """
+    if model is None:
+        model = get_default_model()
+
     styles = ["strict", "analytical"]
     results = {}
 
@@ -187,8 +193,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--model",
-        default="gpt-5-mini-2025-08-07",
-        help="OpenAI model to use"
+        default=None,
+        help="OpenAI model to use (default: configured model)"
     )
     parser.add_argument(
         "-o", "--output",
