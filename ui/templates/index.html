@@ -14,17 +14,17 @@
 <body>
 
     <div class="container">
-        <header style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+        <header>
             <h1>UNGA Research Tool</h1>
-            <div style="font-size: 0.9rem;">
+            <div class="mode-switcher">
                 {% if demo_mode %}
-                <span style="color: var(--text-secondary);">Standard Mode</span>
-                <span style="margin: 0 0.5rem; color: var(--border-color);">|</span>
-                <a href="/?demo=false" style="color: var(--accent); text-decoration: none;">Switch to Expert SQL Mode</a>
+                <span class="current-mode">Standard Mode</span>
+                <span class="separator">|</span>
+                <a href="/?demo=false">Switch to Expert SQL Mode</a>
                 {% else %}
-                <a href="/?demo=true" style="color: var(--accent); text-decoration: none;">Switch to Standard Mode</a>
-                <span style="margin: 0 0.5rem; color: var(--border-color);">|</span>
-                <span style="color: var(--text-secondary);">Expert SQL Mode</span>
+                <a href="/?demo=true">Switch to Standard Mode</a>
+                <span class="separator">|</span>
+                <span class="current-mode">Expert SQL Mode</span>
                 {% endif %}
             </div>
         </header>
@@ -45,17 +45,17 @@
                 </div>
 
                 <!-- RAG Mode Selector -->
-                <div style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
-                    <span style="font-weight: 500; font-size: 0.9rem; color: var(--text-secondary);">Research Mode:</span>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <div class="research-mode-selector">
+                    <span class="mode-label">Research Mode:</span>
+                    <label>
                         <input type="radio" name="rag_mode" value="simple" checked>
-                        <span style="font-size: 0.9rem;">⚡ Quick Answer</span>
-                        <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(Single query)</span>
+                        <span class="mode-name">⚡ Quick Answer</span>
+                        <span class="mode-description">(Single query)</span>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <label>
                         <input type="radio" name="rag_mode" value="multistep">
-                        <span style="font-size: 0.9rem;">🔬 Deep Research</span>
-                        <span style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">(Multi-step exploration)</span>
+                        <span class="mode-name">🔬 Deep Research</span>
+                        <span class="mode-description">(Multi-step exploration)</span>
                     </label>
                 </div>
             </form>
@@ -63,7 +63,7 @@
 
             {% if demo_mode and demo_questions %}
             <div class="chips-row">
-                <p style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">Example questions:</p>
+                <p>Example questions:</p>
                 {% for question in demo_questions %}
                 <button type="button" class="chip demo-question-chip" data-question="{{ question | e }}">
                     {{ question }}
@@ -81,34 +81,34 @@
             {% endif %}
 
             {% if error %}
-            <div class="summary-box" style="background: var(--error-bg); border-color: #fecaca; color: var(--error-text); margin-top: 1rem;">
+            <div class="summary-box" style="background: var(--error-bg); border-color: var(--error-border); color: var(--error-text);">
                 <strong>Error:</strong> {{ error }}
             </div>
             {% endif %}
         </div>
 
         {% if rag_answer %}
-        <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9;">
-            <h2 style="margin-top: 0; color: #0369a1;">Answer</h2>
-            <div class="rag-answer-content" style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem; white-space: pre-wrap;">
+        <div class="answer-card">
+            <h2>Answer</h2>
+            <div class="answer-content">
                 {{ rag_answer.answer }}
             </div>
 
             {% if rag_answer.steps %}
-            <details style="margin-top: 1rem; margin-bottom: 1rem;">
-                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">🔬 Research Steps ({{ rag_answer.steps|length }})</summary>
-                <div style="margin-top: 0.5rem;">
+            <details>
+                <summary>🔬 Research Steps ({{ rag_answer.steps|length }})</summary>
+                <div>
                     {% for step in rag_answer.steps %}
-                    <div style="padding: 0.75rem; background: white; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #10b981;">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
-                            <strong style="color: #059669;">{{ loop.index }}. {{ step.tool }}</strong>
-                            <span style="font-size: 0.85rem; color: var(--text-secondary);">{{ "%.2f"|format(step.execution_time) }}s</span>
+                    <div class="research-step">
+                        <div class="research-step-header">
+                            <strong>{{ loop.index }}. {{ step.tool }}</strong>
+                            <span class="research-step-time">{{ "%.2f"|format(step.execution_time) }}s</span>
                         </div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                        <div class="research-step-detail">
                             <strong>Arguments:</strong> {{ step.arguments | tojson }}
                         </div>
                         {% if step.result and not step.result.error %}
-                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                        <div class="research-step-detail">
                             <strong>Result:</strong>
                             {% if step.tool == 'get_votes' %}
                                 {{ step.result.total_countries }} countries voted
@@ -128,11 +128,11 @@
             {% endif %}
 
             {% if rag_answer.sources %}
-            <details style="margin-top: 1rem;">
-                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Sources ({{ rag_answer.sources|length }})</summary>
-                <div style="margin-top: 0.5rem;">
+            <details>
+                <summary>Sources ({{ rag_answer.sources|length }})</summary>
+                <div>
                     {% for source in rag_answer.sources %}
-                    <span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block; cursor: pointer;"
+                    <span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block; cursor: pointer;"
                           onclick="window.open('https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=' + encodeURIComponent('{{ source }}'), '_blank')">
                         {{ source }}
                     </span>
@@ -140,24 +140,24 @@
                 </div>
             </details>
             {% endif %}
-            
+
             {% if rag_answer.evidence %}
-            <details style="margin-top: 1rem;">
-                <summary style="cursor: pointer; font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Evidence Details</summary>
-                <div style="margin-top: 0.5rem;">
+            <details>
+                <summary>Evidence Details</summary>
+                <div>
                     {% for ev in rag_answer.evidence %}
-                    <div style="padding: 0.75rem; background: white; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #0ea5e9;">
-                        <strong>{{ ev.type|title }}:</strong> 
+                    <div class="evidence-item">
+                        <strong>{{ ev.type|title }}:</strong>
                         {% if ev.symbol %}<code>{{ ev.symbol }}</code>{% endif %}
                         {% if ev.data %}
-                        <div style="margin-top: 0.25rem; font-size: 0.9rem; color: var(--text-secondary);">
+                        <div class="research-step-detail">
                             {% for key, value in ev.data.items() %}
                             <span>{{ key }}: {{ value }}</span>{% if not loop.last %} | {% endif %}
                             {% endfor %}
                         </div>
                         {% endif %}
                         {% if ev.text_excerpt %}
-                        <div style="margin-top: 0.5rem; font-style: italic; color: var(--text-secondary); font-size: 0.9rem;">
+                        <div class="evidence-excerpt">
                             "{{ ev.text_excerpt[:200] }}{% if ev.text_excerpt|length > 200 %}...{% endif %}"
                         </div>
                         {% endif %}
@@ -174,9 +174,9 @@
             <div class="results-header">
                 <div>
                     <strong>Results Found:</strong> {{ result.row_count }}
-                    {% if result.truncated %} <span style="color: var(--text-secondary); font-weight:400;">(showing first {{ result.rows|length }})</span>{% endif %}
+                    {% if result.truncated %} <span style="color: var(--text-secondary); font-weight: 400;">(showing first {{ result.rows|length }})</span>{% endif %}
                 </div>
-                <div style="display: flex; gap: 0.5rem;">
+                <div style="display: flex; gap: var(--space-xs); flex-wrap: wrap;">
                     <button id="download-btn" class="btn btn-secondary" type="button">
                         ⬇️ Download CSV
                     </button>
@@ -247,12 +247,12 @@
         {% endif %}
 
         {% if not demo_mode %}
-        <details style="margin-top: 2rem; color: var(--text-secondary);">
-            <summary style="cursor: pointer; margin-bottom: 0.5rem;">Advanced: Edit SQL</summary>
+        <details class="advanced-section">
+            <summary>Advanced: Edit SQL</summary>
             <div class="card">
                 <form method="post" action="/" data-loading="Running SQL...">
-                    <textarea name="sql_query" style="width:100%; min-height:100px; padding:1rem; border:1px solid var(--border-color); border-radius: var(--radius-md); font-family: monospace;">{{ sql_query }}</textarea>
-                    <div style="text-align: right; margin-top: 1rem;">
+                    <textarea name="sql_query" style="width: 100%; min-height: 100px;">{{ sql_query }}</textarea>
+                    <div style="text-align: right; margin-top: var(--space-md);">
                         <button type="submit" class="btn btn-secondary" style="height: 40px;">Run SQL</button>
                     </div>
                 </form>
@@ -261,10 +261,10 @@
         {% endif %}
 
         {% if demo_mode and sql_query %}
-        <div class="card" style="background: #f9fafb; border: 1px dashed #d1d5db;">
+        <div class="card sql-demo-view">
             <details>
-                <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">View Generated SQL (Demo)</summary>
-                <pre style="margin-top: 0.5rem; padding: 1rem; background: white; border-radius: 6px; overflow-x: auto; font-size: 0.85rem;">{{ sql_query }}</pre>
+                <summary>View Generated SQL (Demo)</summary>
+                <pre>{{ sql_query }}</pre>
             </details>
         </div>
         {% endif %}
@@ -273,17 +273,17 @@
 
     <div id="loading-overlay" class="loading-overlay">
         <div class="spinner"></div>
-        <p style="margin-top: 1rem; font-weight: 500;">Processing...</p>
+        <p>Processing...</p>
     </div>
 
     <div id="text-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="modal-title" style="margin:0;">Full Text</h3>
+                <h3 id="modal-title">Full Text</h3>
                 <button type="button" class="close-modal" onclick="document.getElementById('text-modal').classList.remove('active')">&times;</button>
             </div>
             <div class="modal-body">
-                <pre id="modal-body-content" style="white-space: pre-wrap; font-family: inherit;"></pre>
+                <pre id="modal-body-content" style="white-space: pre-wrap;"></pre>
             </div>
         </div>
     </div>
@@ -411,17 +411,17 @@
                     const data = await res.json();
                     
                     if(!res.ok) throw new Error(data.error || 'Error');
-                    
+
                     let sourcesHtml = '';
                     if(data.sources && data.sources.length > 0) {
-                        sourcesHtml = `<details style="margin-top: 1rem;"><summary style="cursor: pointer; font-weight: 600;">Sources (${data.sources.length})</summary><div style="margin-top: 0.5rem;">`;
+                        sourcesHtml = `<details><summary>Sources (${data.sources.length})</summary><div>`;
                         data.sources.forEach(source => {
-                            sourcesHtml += `<span class="badge badge-pdf" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block;">${source}</span>`;
+                            sourcesHtml += `<span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;">${source}</span>`;
                         });
                         sourcesHtml += '</div></details>';
                     }
-                    
-                    container.innerHTML = `<div class="summary-box" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9;"><h3 style="color: #0369a1; margin-top: 0;">Answer</h3><div style="font-size: 1.1rem; line-height: 1.7;">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}</div>`;
+
+                    container.innerHTML = `<div class="answer-card"><h3>Answer</h3><div class="answer-content">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}</div>`;
                     answerBtn.innerText = 'Answered';
                 } catch(e) {
                     container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;

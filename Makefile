@@ -34,6 +34,10 @@ help:
 	@echo "Database commands:"
 	@echo "  make db-setup         - Setup production database"
 	@echo "  make db-setup-dev     - Setup dev database"
+	@echo "  make db-shell         - Open psql shell (production)"
+	@echo "  make db-shell-dev     - Open psql shell (dev)"
+	@echo "  make db-query SQL='...' - Run SQL query (production)"
+	@echo "  make db-query-dev SQL='...' - Run SQL query (dev)"
 	@echo ""
 	@echo "Logging commands:"
 	@echo "  make logs-tail        - Tail multistep tool logs (debugging)"
@@ -139,6 +143,30 @@ db-setup:
 
 db-setup-dev:
 	uv run -m db.setup_db --dev
+
+db-shell:
+	@echo "🐘 Opening PostgreSQL shell (production database)..."
+	docker-compose exec postgres psql -U un_user -d un_documents
+
+db-shell-dev:
+	@echo "🐘 Opening PostgreSQL shell (dev database)..."
+	docker-compose exec postgres_dev psql -U un_user -d un_documents_dev
+
+db-query:
+	@echo "Usage: make db-query SQL='SELECT * FROM resolutions LIMIT 5;'"
+	@if [ -z "$(SQL)" ]; then \
+		echo "Error: SQL not specified"; \
+		exit 1; \
+	fi
+	@docker-compose exec postgres psql -U un_user -d un_documents -c "$(SQL)"
+
+db-query-dev:
+	@echo "Usage: make db-query-dev SQL='SELECT * FROM resolutions LIMIT 5;'"
+	@if [ -z "$(SQL)" ]; then \
+		echo "Error: SQL not specified"; \
+		exit 1; \
+	fi
+	@docker-compose exec postgres_dev psql -U un_user -d un_documents_dev -c "$(SQL)"
 
 # Cleanup
 clean:

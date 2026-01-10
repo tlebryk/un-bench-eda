@@ -158,7 +158,7 @@ class MeetingLoader(BaseLoader):
                     # Extract procedural events
                     procedural_events = utterance_data.get("procedural_events")
                     if procedural_events:
-                        self._extract_procedural_events(utterance, procedural_events, doc)
+                        votes_extracted += self._extract_procedural_events(utterance, procedural_events, doc)
 
         if utterances_extracted > 0 or votes_extracted > 0:
             self.stats["loaded"] += 1
@@ -363,8 +363,9 @@ class MeetingLoader(BaseLoader):
 
         return vote_count
 
-    def _extract_procedural_events(self, utterance: Utterance, events: list, meeting_doc: Document):
+    def _extract_procedural_events(self, utterance: Utterance, events: list, meeting_doc: Document) -> int:
         """Extract procedural events and linked votes"""
+        votes_count = 0
         for event_data in events:
             # Try to resolve target document (Draft)
             target_doc_id = None
@@ -409,7 +410,9 @@ class MeetingLoader(BaseLoader):
             # Extract votes if present
             vote_details = event_data.get('vote_details')
             if vote_details:
-                 self._load_votes_from_meeting(None, vote_details, vote_event_id=vote_event.id)
+                 votes_count += self._load_votes_from_meeting(None, vote_details, vote_event_id=vote_event.id)
+        
+        return votes_count
 
     def parse_meeting_date(self, datetime_str: str):
         """Parse meeting datetime: 'Tuesday, 9 January 2024, 10 a.m.'"""

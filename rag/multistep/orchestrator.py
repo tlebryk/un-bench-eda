@@ -36,9 +36,9 @@ class MultiStepOrchestrator:
         # Tool definitions
         self.tools = [
             execute_sql_query_tool(),
-            get_related_documents_tool(),
-            get_votes_tool(),
-            get_utterances_tool(),
+            # get_related_documents_tool(),
+            # get_votes_tool(),
+            # get_utterances_tool(),
             answer_with_evidence_tool(),
         ]
 
