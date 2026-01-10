@@ -15,9 +15,12 @@ UN API (XML, HTML)       JSON metadata / parsed       SQLAlchemy loaders + BaseL
 ```
 
 ### Entry points
-- `uv run python -m etl.run_etl --reset` – full end-to-end run (fetch + parse + load; idempotent per loader)
-- `uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports` – targeted fetch
-- `uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/` – convert HTML → JSON
+
+**Note:** The ETL pipeline has 3 separate stages (Fetch → Parse → Load) that must be run independently.
+
+- `uv run python -m etl.run_etl --reset` – **Load stage only:** load all parsed JSON files into database (does NOT fetch or parse)
+- `uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports` – **Fetch stage:** download metadata XML from UN
+- `uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/` – **Parse stage:** convert HTML → JSON
 - `uv run python scripts/setup_db.py` – apply schema (see `db/models.py`)
 
 All scripts rely on uv; configure targets via argparse flags (`--types`, `--session`, `--max-docs`, etc.).
@@ -28,12 +31,12 @@ All scripts rely on uv; configure targets via argparse flags (`--types`, `--sess
 
 ```
 etl/
-├── fetch_download/         # API requests + file downloads
-├── parsing/                # XML/HTML/PDF parsing
-├── load_*.py               # SQL loaders per document type
+├── fetch_download/         # API requests + file downloads (Stage 1: Fetch)
+├── parsing/                # XML/HTML/PDF parsing (Stage 2: Parse)
+├── load_*.py               # SQL loaders per document type (classes, not runnable scripts)
 ├── trajectories/           # QA + genealogy helpers
 ├── validate_etl.py         # Cross-step validation utilities
-└── run_etl.py              # Orchestrates the stages above
+└── run_etl.py              # Stage 3: Load (calls load_*.py classes to insert parsed JSON into DB)
 ```
 
 ### Loader hierarchy (`db/etl/*.py`)
@@ -42,7 +45,7 @@ BaseLoader (abstract logger/stats helpers)
  ├── DocumentLoader
  │    ├── ResolutionLoader
  │    ├── DraftLoader
- │    ├── MeetingLoader (builds utterances + votes)
+ │    ├── MeetingLoader (builds utterances + votes + procedural events)
  │    ├── CommitteeReportLoader
  │    └── AgendaLoader
  └── ActorLoader (normalizes names and caches IDs)
@@ -53,6 +56,12 @@ Key BaseLoader behaviors (see `db/etl/base_loader.py`):
 - Computes hashes + symbol extraction helpers to avoid duplicates.
 - Emits structured stats (total/success/failed/skipped) and log files (`logs/etl_*.log`).
 
+### Procedural Votes & Oral Amendments
+As of Jan 2026, the pipeline supports **procedural votes** (e.g., motions for division, oral amendments).
+- **Parser:** Extracts `procedural_events` from meeting text.
+- **Schema:** Stored in `vote_events` table, linked to `votes` (where `document_id` is NULL).
+- **Goal:** Enable tracking of failed amendments and complex voting maneuvers that don't result in a final resolution document.
+
 ### Actor normalization
 `ActorLoader` loads cached actors from DB, applies normalization rules (e.g., *United States of America → United States*), and exposes `get_or_create_actor()` to other loaders. Aliases land in the JSONB metadata for future cleanup.
 
@@ -60,38 +69,107 @@ Key BaseLoader behaviors (see `db/etl/base_loader.py`):
 
 ## 3. Runbook (Session 78 example)
 
-1. **Fetch metadata**
-   ```bash
-   uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports meetings agenda
-   ```
-2. **Download HTML/PDF assets**
-   ```bash
-   uv run python -m etl.fetch_download.download_metadata_html data/raw/xml/session_78_resolutions.xml
-   uv run python -m etl.fetch_download.download_pdfs data/parsed/metadata/session_78_resolutions.json
-   ```
-3. **Parse XML/HTML/PDF → JSON**
-   ```bash
-   uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/
-   uv run python -m etl.parsing.parse_metadata data/raw/xml/session_78_resolutions.xml
-   uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/
-   ```
-4. **Load into Postgres**
-   ```bash
-   uv run python -m etl.load_documents --path data/parsed/metadata/resolutions/
-   uv run python -m etl.load_meetings --path data/parsed/pdf/meetings/
-   uv run python -m etl.load_committee_meetings --path data/parsed/pdf/committee-summary-records/
-   ```
-5. **Run trajectory QA + downstream checks**
-   ```bash
-   uv run python -m etl.trajectories.qa_trajectories -n 50 --seed 42
-   uv run python -m etl.validate_etl
-   ```
+The ETL pipeline has 3 **SEPARATE** stages that must be run independently:
 
-`etl/run_etl.py` wires these together with sensible defaults and CLI flags (`--resolutions-only`, `--skip-load`, etc.) for targeted runs.
+### Stage 1: Fetch (Download from UN website)
+
+```bash
+# Fetch metadata XML
+uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports meetings agenda
+
+# Download HTML/PDF files
+uv run python -m etl.fetch_download.download_metadata_html data/raw/xml/session_78_resolutions.xml
+uv run python -m etl.fetch_download.download_pdfs data/parsed/metadata/session_78_resolutions.json
+```
+
+### Stage 2: Parse (Convert files to JSON)
+
+```bash
+# Parse metadata (XML/HTML → JSON)
+uv run python -m etl.parsing.parse_metadata data/raw/xml/session_78_resolutions.xml
+uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/
+
+# Parse PDFs (PDF → JSON)
+# IMPORTANT: Use DIRECTORY mode to ensure output goes to data/parsed/
+uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/
+# Outputs to: data/parsed/pdfs/meetings/ (auto-detected)
+```
+
+### Stage 3: Load (JSON → PostgreSQL)
+
+```bash
+# Single command loads ALL parsed JSON files
+uv run python -m etl.run_etl --reset
+
+# Or load specific types only
+uv run python -m etl.run_etl --resolutions-only
+uv run python -m etl.run_etl --meetings-only
+uv run python -m etl.run_etl --documents-only
+```
+
+**Note:** The individual loaders (load_documents.py, load_meetings.py, etc.) are classes, not runnable scripts. They are called by run_etl.py. Do not try to invoke them directly with `python -m`.
+
+**Meeting relationships.** Both plenary (`MeetingLoader`) and committee (`CommitteeMeetingLoader`) jobs now inspect every utterance they ingest. Whenever an utterance links to a draft or resolution, the loader automatically creates/updates a `document_relationships` row with `relationship_type='meeting_record_for'` so you can traverse `resolution → meeting` (or `draft → meeting`) without hand-written joins through `utterance_documents`. Re-running the meeting loaders is enough to backfill the new relationships for older sessions.
+
+### Stage 4: Validate & QA
+
+```bash
+uv run python -m etl.trajectories.qa_trajectories -n 50 --seed 42
+uv run python -m etl.validate_etl
+```
 
 ---
 
-## 4. QA, Monitoring & Incident Notes
+## 4. Parser Output Locations
+
+The parsers use auto-detection to determine where to write output JSON files:
+
+### Directory mode (recommended)
+
+When you pass a directory as input, the parser automatically transforms the path:
+
+```bash
+uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/
+# Input:  data/documents/pdfs/meetings/
+# Output: data/parsed/pdfs/meetings/ (auto-transforms 'documents' → 'parsed')
+```
+
+### Single file mode
+
+When you pass a single PDF file, the parser writes the JSON to the **same directory** as the input file:
+
+```bash
+uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/A_78_PV.107.pdf
+# Input:  data/documents/pdfs/meetings/A_78_PV.107.pdf
+# Output: data/documents/pdfs/meetings/A_78_PV.107.json (same directory!)
+```
+
+### Important: Loader expectations
+
+The loader (`run_etl.py`) **always reads from `data/parsed/`**, not `data/documents/`.
+
+If you parse individual files in single-file mode, you must manually copy the JSON to the `data/parsed/` directory before loading:
+
+```bash
+# After single-file parse
+cp data/documents/pdfs/meetings/A_78_PV.107.json data/parsed/pdfs/meetings/
+
+# Then load
+uv run python -m etl.run_etl --reset
+```
+
+### Override output location
+
+You can explicitly specify the output directory with `-o`:
+
+```bash
+uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/A_78_PV.107.pdf \
+  -o data/parsed/pdfs/meetings/
+```
+
+---
+
+## 5. QA, Monitoring & Incident Notes
 
 ### Committee report incident (Jan 2026)
 - **Symptom:** Only 20% (4/20) of trajectories had committee reports; 491 HTML files downloaded but only 111 parsed.
@@ -115,7 +193,7 @@ Key BaseLoader behaviors (see `db/etl/base_loader.py`):
 
 ---
 
-## 5. Known gaps & backlog
+## 6. Known gaps & backlog
 - Pagination support in `fetch_metadata.py` (currently manual when max hits reached).
 - Sponsor extraction still happens in trajectory builders; move into dedicated DB tables (`sponsorships`) once parser stabilizes.
 - Meeting PDF parser (`parse_committee_sr.py`) is new—monitor word counts + section parsing for regressions.
@@ -123,7 +201,7 @@ Key BaseLoader behaviors (see `db/etl/base_loader.py`):
 
 ---
 
-## 6. References
+## 7. References
 - Implementation: `etl/`, `db/etl/`, `scripts/setup_db.py`
 - Schema + downstream usage: `docs/README_DATABASE.md`, `docs/gym.md`, `docs/rag_enhancement_plan.md`
 - Tests: `tests/etl_tests/`, `tests/integration/`

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 from dotenv import load_dotenv
 from openai import OpenAI
+import yaml
+from jinja2 import Template
 
 # Load environment variables
 load_dotenv()
@@ -29,152 +31,24 @@ def get_client():
         _client = OpenAI(api_key=api_key)
     return _client
 
-# Database schema description for the LLM
-SCHEMA_DESCRIPTION = """
-PostgreSQL database schema for UN General Assembly documents:
+# Load prompts from YAML config
+def load_text_to_sql_config():
+    """Load text-to-SQL configuration from YAML file with Jinja2 support."""
+    config_path = Path(__file__).parent / "prompts" / "text_to_sql.yaml"
+    with open(config_path, 'r') as f:
+        content = f.read()
+    
+    # Render with Jinja2 using environment variables
+    template = Template(content)
+    rendered_content = template.render(env=os.environ)
+    
+    return yaml.safe_load(rendered_content)
 
-Tables:
-1. documents
-   - id (integer, primary key)
-   - symbol (text, unique, indexed) - Document identifier with slashes (e.g., "A/RES/78/220", "A/C.3/78/L.41", "A/78/PV.16")
-   - doc_type (text, indexed) - Document type. MUST use exact values:
-     * 'resolution' - UN resolutions (e.g., A/RES/78/220)
-     * 'draft' - Draft resolutions (e.g., A/78/L.2, A/C.3/78/L.41)
-     * 'meeting' - Plenary meetings (e.g., A/78/PV.16)
-     * 'committee_report' - Committee reports
-     * 'agenda_item' - Agenda items (e.g., A/78/251_item_125)
-   - session (integer, indexed) - Session number (e.g., 78, 79)
-   - title (text) - document title
-   - date (date)
-   - body_text (text) - full text content from PDFs (available for resolutions, drafts; use for text search and summarization)
-   - doc_metadata (jsonb) - flexible metadata stored as JSON
-   - created_at (timestamp)
-
-2. actors
-   - id (integer, primary key)
-   - name (text, unique, indexed) - country or organization name
-   - actor_type (text) - 'country', 'observer', 'un_official'
-   - created_at (timestamp)
-
-3. votes
-   - id (integer, primary key)
-   - document_id (integer, foreign key to documents.id, indexed)
-   - actor_id (integer, foreign key to actors.id, indexed)
-   - vote_type (text) - Vote type. MUST use exact values:
-     * 'in_favour' - yes votes
-     * 'against' - no votes
-     * 'abstaining' - abstentions
-   - vote_context (text) - Voting context. MUST use exact values:
-     * 'plenary' - plenary votes
-     * 'committee' - committee votes
-   - created_at (timestamp)
-
-4. document_relationships
-   - id (integer, primary key)
-   - source_id (integer, foreign key to documents.id, indexed)
-   - target_id (integer, foreign key to documents.id, indexed)
-   - relationship_type (text, indexed) - Relationship type. MUST use exact values:
-     * 'draft_of' - draft → resolution
-     * 'committee_report_for' - committee report → resolution
-     * 'meeting_record_for' - meeting → resolution
-     * 'agenda_item_for' - agenda item → resolution
-   - rel_metadata (jsonb)
-   - created_at (timestamp)
-
-5. utterances
-   - id (integer, primary key)
-   - meeting_id (integer, foreign key to documents.id, indexed)
-   - section_id (text) - e.g., "A/78/PV.80_section_11"
-   - agenda_item_number (text, indexed) - e.g., "11", "20"
-   - speaker_actor_id (integer, foreign key to actors.id, nullable, indexed)
-   - speaker_name (text) - parsed name (e.g., "El-Sonni")
-   - speaker_role (text) - e.g., "The President", "delegate"
-   - speaker_raw (text) - original speaker string from PDF
-   - speaker_affiliation (text) - country or organization
-   - text (text) - utterance content
-   - word_count (integer)
-   - position_in_meeting (integer)
-   - position_in_section (integer)
-   - utterance_metadata (jsonb)
-   - created_at (timestamp)
-
-6. utterance_documents
-   - id (integer, primary key)
-   - utterance_id (integer, foreign key to utterances.id, indexed)
-   - document_id (integer, foreign key to documents.id, indexed)
-   - reference_type (text) - Reference type. Common values:
-     * 'mentioned' - document mentioned in utterance
-     * 'voting_on' - utterance is about voting on this document
-   - context (text) - sentence/context where document was mentioned
-   - created_at (timestamp)
-
-7. subjects
-   - id (integer, primary key)
-   - name (text, unique, indexed) - e.g. "SUSTAINABLE DEVELOPMENT", "HUMAN RIGHTS"
-
-8. document_subjects
-   - document_id (integer, foreign key to documents.id, primary key)
-   - subject_id (integer, foreign key to subjects.id, primary key)
-
-9. sponsorships
-   - id (integer, primary key)
-   - document_id (integer, foreign key to documents.id, indexed)
-   - actor_id (integer, foreign key to actors.id, indexed)
-   - sponsorship_type (text) - 'initial' (from authors list) or 'additional' (from meeting notes)
-   - created_at (timestamp)
-
-Example document symbols:
-- Resolutions: A/RES/78/3, A/RES/78/220, A/RES/78/271
-- Drafts: A/78/L.2, A/C.3/78/L.41
-- Meetings: A/78/PV.16, A/78/PV.93
-- Agenda items: A/78/251_item_125
-
-Common query patterns:
-- Join documents with votes: JOIN votes ON votes.document_id = documents.id
-- Join votes with actors: JOIN actors ON actors.id = votes.actor_id
-- Join documents with relationships: JOIN document_relationships ON document_relationships.source_id = documents.id OR document_relationships.target_id = documents.id
-- Join utterances with meetings: JOIN documents ON documents.id = utterances.meeting_id WHERE documents.doc_type = 'meeting'
-- Join utterances with actors: JOIN actors ON actors.id = utterances.speaker_actor_id
-- Join documents with subjects: JOIN document_subjects ON document_subjects.document_id = documents.id JOIN subjects ON subjects.id = document_subjects.subject_id
-- Join documents with sponsors: JOIN sponsorships ON sponsorships.document_id = documents.id JOIN actors ON actors.id = sponsorships.actor_id
-
-Note: Use ILIKE for case-insensitive text matching. Use JSONB operators (->, ->>) to access metadata fields.
-"""
-
-SYSTEM_PROMPT = """You are a PostgreSQL expert. Convert natural language questions into valid PostgreSQL SELECT queries.
-
-CRITICAL: Use EXACT enum values from the schema. Do NOT use variations:
-- doc_type: 'resolution' (NOT 'resolutions'), 'draft', 'meeting', 'committee_report', 'agenda_item'
-- vote_type: 'in_favour' (NOT 'yes'), 'against' (NOT 'no'), 'abstaining'
-- relationship_type: 'draft_of', 'committee_report_for', 'meeting_record_for', 'agenda_item_for'
-- Document symbols use slashes: 'A/RES/78/220' (NOT 'A_RES_78_220')
-
-Rules:
-1. Only generate SELECT, WITH, or EXPLAIN queries (read-only)
-2. Use proper JOIN syntax
-3. Use ILIKE for case-insensitive text searches
-4. Always include appropriate WHERE clauses
-5. Use LIMIT when appropriate (default to 100 if not specified)
-6. Return only the SQL query, no explanations or markdown formatting
-7. Use proper table and column names from the schema
-8. For country/actor name matching, use ILIKE with patterns like '%country name%' to handle variations
-9. Use proper date comparisons and ordering
-10. When querying JSONB fields, use -> for objects and ->> for text values
-11. For document text content, use the 'body_text' column (contains full PDF text for resolutions/drafts)
-12. For meeting statements, query the 'utterances' table which has a 'text' column
-13. Avoid selecting the large doc_metadata or body_text fields unless specifically requested (use title for previews)
-
-Example queries:
-- "Show me all resolutions from session 78"
-  → SELECT symbol, title FROM documents WHERE doc_type = 'resolution' AND session = 78 LIMIT 100;
-
-- "Which countries voted against A/RES/78/220?"
-  → SELECT actors.name FROM votes JOIN actors ON votes.actor_id = actors.id JOIN documents ON votes.document_id = documents.id WHERE documents.symbol = 'A/RES/78/220' AND votes.vote_type = 'against';
-
-- "Find all drafts that became resolutions"
-  → SELECT d1.symbol as draft, d2.symbol as resolution FROM document_relationships dr JOIN documents d1 ON dr.source_id = d1.id JOIN documents d2 ON dr.target_id = d2.id WHERE dr.relationship_type = 'draft_of' LIMIT 100;
-
-The database contains UN General Assembly documents, votes, actors (countries), and meeting utterances."""
+# Load configuration
+_config = load_text_to_sql_config()
+SCHEMA_DESCRIPTION = _config['schema_description']
+SYSTEM_PROMPT = _config['system_prompt']
+DEFAULT_MODEL = _config.get('model', 'gpt-5-mini-2025-08-07')
 
 
 class SQLValidationError(Exception):
@@ -255,13 +129,13 @@ def validate_sql(sql: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-07", validate: bool = True) -> Optional[str]:
+def generate_sql(natural_language_query: str, model: Optional[str] = None, validate: bool = True) -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
 
     Args:
         natural_language_query: The natural language question
-        model: OpenAI model to use (default: gpt-5-mini-2025-08-07 for cost/speed)
+        model: OpenAI model to use (default: configured model)
         validate: Whether to validate the generated SQL for security (default: True)
 
     Returns:
@@ -271,6 +145,9 @@ def generate_sql(natural_language_query: str, model: str = "gpt-5-mini-2025-08-0
         SQLValidationError: If generated SQL fails validation checks
         RuntimeError: If SQL generation fails
     """
+    if model is None:
+        model = DEFAULT_MODEL
+
     logger.info(f"Generating SQL from natural language query (model: {model}): {natural_language_query}")
 
     client = get_client()
@@ -321,7 +198,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Convert natural language to SQL")
     parser.add_argument("query", help="Natural language query")
-    parser.add_argument("--model", "-m", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", "-m", default=None, help="OpenAI model to use (default: configured model)")
     parser.add_argument("--no-validate", action="store_true", help="Skip SQL validation (not recommended)")
     args = parser.parse_args()
 

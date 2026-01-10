@@ -313,16 +313,42 @@ class TrajectoryBuilder:
             plenary_vote_details = None
             if pdf_meeting:
                 resolution_symbol = tree.get("root_symbol")
+                draft_symbols = [d['symbol'] for d in tree.get("drafts", [])]
+
                 # Find the utterance with vote details for our resolution
                 for section in pdf_meeting.get("sections", []):
                     for utterance in section.get("utterances", []):
+                        # Check procedural events
+                        if 'procedural_events' in utterance:
+                            for event in utterance['procedural_events']:
+                                # Check if this event targets one of our drafts
+                                event_draft = event.get('draft_resolution_identifier')
+                                # Simple substring match (e.g. L.19 in A/78/L.19)
+                                if event_draft and any(event_draft in d for d in draft_symbols):
+                                    timesteps.append({
+                                        "date": date,
+                                        "stage": "plenary_procedural_vote",
+                                        "action_type": event.get('event_type'),
+                                        "state": {
+                                            "draft_symbol": event_draft,
+                                            "meeting_symbol": meeting["symbol"],
+                                            "description": event.get('description')
+                                        },
+                                        "action": {
+                                            "actor": "General Assembly",
+                                            "type": "vote_on_amendment",
+                                            "votes": event.get('vote_details')
+                                        },
+                                        "observation": {
+                                            "public": True,
+                                            "outcome": event.get('adoption_status')
+                                        }
+                                    })
+
                         res_meta = utterance.get("resolution_metadata", {})
                         if res_meta.get("resolution_symbol") == resolution_symbol:
                             plenary_vote_details = res_meta.get("vote_details")
-                            break
-                    if plenary_vote_details:
-                        break
-
+                            
             # Extract statements/utterances
             utterances = []
             if pdf_meeting:

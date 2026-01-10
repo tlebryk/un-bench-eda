@@ -1,4 +1,5 @@
 from typing import Dict, Any, List, Optional
+from collections import defaultdict
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ from rag.multistep.tools import (
     answer_with_evidence_tool
 )
 from rag.multistep.prompts import MULTISTEP_SYSTEM_PROMPT
+from rag.prompt_config import get_default_model
 
 # Set up logging
 from utils.logging_config import get_logger
@@ -23,7 +25,9 @@ logger = get_logger(__name__, log_file="multistep_tools.log")
 class MultiStepOrchestrator:
     """Orchestrate multi-step RAG queries using OpenAI tool calling."""
 
-    def __init__(self, model: str = "gpt-5-mini-2025-08-07", max_steps: int = 6):
+    def __init__(self, model: Optional[str] = None, max_steps: int = 6):
+        if model is None:
+            model = get_default_model()
         self.model = model
         self.max_steps = max_steps
         
@@ -36,9 +40,9 @@ class MultiStepOrchestrator:
         # Tool definitions
         self.tools = [
             execute_sql_query_tool(),
-            get_related_documents_tool(),
-            get_votes_tool(),
-            get_utterances_tool(),
+            # get_related_documents_tool(),
+            # get_votes_tool(),
+            # get_utterances_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -73,7 +77,7 @@ class MultiStepOrchestrator:
         ]
 
         steps_taken = []
-        accumulated_evidence = {}
+        accumulated_evidence = defaultdict(list)
 
         # Loop until answer is ready or max steps reached
         for step_num in range(self.max_steps):
@@ -150,7 +154,7 @@ class MultiStepOrchestrator:
                             })
 
                             # Store evidence
-                            accumulated_evidence[tool_name] = result
+                            accumulated_evidence[tool_name].append(result)
 
                             # Add function result to conversation
                             input_list.append({
@@ -190,6 +194,13 @@ class MultiStepOrchestrator:
         logger.info(f"\n{'='*60}")
         logger.info(f"🔄 SYNTHESIZING FINAL ANSWER")
         logger.info(f"   Tools used: {[step['tool'] for step in steps_taken]}")
+
+        # Log accumulation summary
+        for tool_name, results in accumulated_evidence.items():
+            total_calls = len(results)
+            successful_calls = sum(1 for r in results if "error" not in r)
+            logger.info(f"   {tool_name}: {successful_calls}/{total_calls} successful calls")
+
         logger.info(f"{'='*60}\n")
         
         # Format evidence for rag_qa.answer_question
@@ -279,80 +290,103 @@ class MultiStepOrchestrator:
 
         # Add SQL query results (already in rows format)
         if "execute_sql_query" in evidence:
-            sql_result = evidence["execute_sql_query"]
-            # SQL results are already in the right format
-            for row in sql_result.get("rows", []):
-                rows.append(row)
+            # evidence["execute_sql_query"] is now a LIST of results
+            for sql_result in evidence["execute_sql_query"]:
+                # Skip results with errors
+                if "error" in sql_result:
+                    logger.warning(f"Skipping SQL result with error: {sql_result['error']}")
+                    continue
+
+                # SQL results are already in the right format
+                for row in sql_result.get("rows", []):
+                    rows.append(row)
 
         # Add vote evidence
         if "get_votes" in evidence:
-            votes_data = evidence["get_votes"]
-            # votes_data structure: {"symbol": ..., "votes": {"against": ["Country", ...]}, "total_countries": ...}
-            
-            symbol = votes_data.get("symbol")
-            for vote_type, countries in votes_data.get("votes", {}).items():
-                for country in countries:
-                    rows.append({
-                        "symbol": symbol,
-                        "vote_type": vote_type,
-                        "actor_name": country, # rag_qa looks for 'name', 'actor_name', 'speaker_affiliation', 'country'
-                        "vote_context": "plenary" # assumption for now, or could come from tool
-                    })
+            # evidence["get_votes"] is now a LIST of results
+            for votes_data in evidence["get_votes"]:
+                # Skip results with errors
+                if "error" in votes_data:
+                    logger.warning(f"Skipping votes result with error: {votes_data['error']}")
+                    continue
+
+                # votes_data structure: {"symbol": ..., "votes": {"against": ["Country", ...]}, "total_countries": ...}
+                symbol = votes_data.get("symbol")
+                for vote_type, countries in votes_data.get("votes", {}).items():
+                    for country in countries:
+                        rows.append({
+                            "symbol": symbol,
+                            "vote_type": vote_type,
+                            "actor_name": country, # rag_qa looks for 'name', 'actor_name', 'speaker_affiliation', 'country'
+                            "vote_context": "plenary" # assumption for now, or could come from tool
+                        })
 
         # Add utterance evidence
         if "get_utterances" in evidence:
-            # utterances structure: {"utterances": [{"speaker_name": ..., "text": ...}, ...]}
-            utt_data = evidence["get_utterances"]
-            for utt in utt_data.get("utterances", []):
-                rows.append({
-                    "text": utt.get("full_text") or utt.get("text"),
-                    "speaker_affiliation": utt.get("speaker_affiliation"),
-                    "speaker_name": utt.get("speaker_name"),
-                    "meeting_symbol": utt.get("meeting", [])[0] if isinstance(utt.get("meeting"), list) and utt.get("meeting") else None,
-                    "agenda_item_number": utt.get("agenda_item")
-                })
+            # evidence["get_utterances"] is now a LIST of results
+            for utt_data in evidence["get_utterances"]:
+                # Skip results with errors
+                if "error" in utt_data:
+                    logger.warning(f"Skipping utterances result with error: {utt_data['error']}")
+                    continue
+
+                # utterances structure: {"utterances": [{"speaker_name": ..., "text": ...}, ...]}
+                for utt in utt_data.get("utterances", []):
+                    rows.append({
+                        "text": utt.get("full_text") or utt.get("text"),
+                        "speaker_affiliation": utt.get("speaker_affiliation"),
+                        "speaker_name": utt.get("speaker_name"),
+                        "meeting_symbol": utt.get("meeting", [])[0] if isinstance(utt.get("meeting"), list) and utt.get("meeting") else None,
+                        "agenda_item_number": utt.get("agenda_item")
+                    })
 
         # Add related documents metadata
         if "get_related_documents" in evidence:
-            related = evidence["get_related_documents"]
-            # related structure: {"symbol": ..., "meetings": [...], "drafts": [...], "committee_reports": [...], "agenda_items": [...]}
+            # evidence["get_related_documents"] is now a LIST of results
+            for related in evidence["get_related_documents"]:
+                # Skip results with errors
+                if "error" in related:
+                    logger.warning(f"Skipping related docs result with error: {related['error']}")
+                    continue
 
-            # We add this as a "document" type or "relationship" type implicitly via fields
-            rows.append({
-                "symbol": related.get("symbol"),
-                "doc_type": "resolution", # inferred
-                "doc_metadata": json.dumps({
-                    "meetings": related.get("meetings"),
-                    "drafts": related.get("drafts"),
-                    "committee_reports": related.get("committee_reports"),
-                    "agenda_items": related.get("agenda_items")
-                })
-            })
+                # related structure: {"symbol": ..., "meetings": [...], "drafts": [...], "committee_reports": [...], "agenda_items": [...]}
 
-            # Also add rows for related docs to be picked up as evidence
-            for meeting in related.get("meetings", []):
+                # We add this as a "document" type or "relationship" type implicitly via fields
                 rows.append({
-                    "symbol": meeting,
-                    "doc_type": "meeting",
-                    "relationship_type": "meeting_for",
-                    "target_symbol": related.get("symbol")
+                    "symbol": related.get("symbol"),
+                    "doc_type": "resolution", # inferred
+                    "doc_metadata": json.dumps({
+                        "meetings": related.get("meetings"),
+                        "drafts": related.get("drafts"),
+                        "committee_reports": related.get("committee_reports"),
+                        "agenda_items": related.get("agenda_items")
+                    })
                 })
 
-            for draft in related.get("drafts", []):
-                rows.append({
-                    "symbol": draft,
-                    "doc_type": "draft",
-                    "relationship_type": "draft_of",
-                    "target_symbol": related.get("symbol")
-                })
+                # Also add rows for related docs to be picked up as evidence
+                for meeting in related.get("meetings", []):
+                    rows.append({
+                        "symbol": meeting,
+                        "doc_type": "meeting",
+                        "relationship_type": "meeting_for",
+                        "target_symbol": related.get("symbol")
+                    })
 
-            for agenda_item in related.get("agenda_items", []):
-                rows.append({
-                    "symbol": agenda_item,
-                    "doc_type": "agenda",
-                    "relationship_type": "agenda_item",
-                    "target_symbol": related.get("symbol")
-                })
+                for draft in related.get("drafts", []):
+                    rows.append({
+                        "symbol": draft,
+                        "doc_type": "draft",
+                        "relationship_type": "draft_of",
+                        "target_symbol": related.get("symbol")
+                    })
+
+                for agenda_item in related.get("agenda_items", []):
+                    rows.append({
+                        "symbol": agenda_item,
+                        "doc_type": "agenda",
+                        "relationship_type": "agenda_item",
+                        "target_symbol": related.get("symbol")
+                    })
 
         return {
             "columns": list(rows[0].keys()) if rows else [],

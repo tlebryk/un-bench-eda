@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional, Set
 from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy import text
+from rag.prompt_config import get_default_model
 
 from db.config import engine, get_session
 from db.models import Document, Actor, Vote, Utterance, DocumentRelationship
@@ -186,7 +187,7 @@ def answer_question(
     query_results: Dict[str, Any],
     original_question: str,
     sql_query: Optional[str] = None,
-    model: str = "gpt-5-mini-2025-08-07",
+    model: Optional[str] = None,
     prompt_style: str = "analytical"
 ) -> Dict[str, Any]:
     """
@@ -196,12 +197,15 @@ def answer_question(
         query_results: Result dictionary from execute_sql
         original_question: The original natural language question
         sql_query: Optional SQL query that generated the results
-        model: OpenAI model to use
+        model: OpenAI model to use (default: configured model)
         prompt_style: Prompt style to use ("strict", "analytical", "conversational")
 
     Returns:
         Dictionary with 'answer', 'evidence', and 'sources' keys
     """
+    if model is None:
+        model = get_default_model()
+
     logger.info(f"Answering question (model: {model}, style: {prompt_style}): {original_question}")
 
     # Extract evidence context (now captures all columns)
@@ -284,7 +288,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Answer questions using RAG with evidence grounding")
     parser.add_argument("question", help="Natural language question")
-    parser.add_argument("--model", default="gpt-5-mini-2025-08-07", help="OpenAI model to use")
+    parser.add_argument("--model", default=None, help="OpenAI model to use (default: configured model)")
     args = parser.parse_args()
     
     print("This module is designed to be used programmatically.")

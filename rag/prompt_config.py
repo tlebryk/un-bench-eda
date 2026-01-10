@@ -1,8 +1,10 @@
 """Load and manage RAG prompt configurations."""
 
 import yaml
+import os
 from pathlib import Path
 from typing import Dict, Any
+from jinja2 import Template
 
 # Default prompt config file location
 DEFAULT_CONFIG_FILE = Path(__file__).parent / "prompt_config.yaml"
@@ -10,7 +12,7 @@ DEFAULT_CONFIG_FILE = Path(__file__).parent / "prompt_config.yaml"
 
 def load_prompt_config(config_file: Path = DEFAULT_CONFIG_FILE) -> Dict[str, Any]:
     """
-    Load prompt configurations from YAML file.
+    Load prompt configurations from YAML file with Jinja2 support.
 
     Args:
         config_file: Path to YAML config file
@@ -19,7 +21,19 @@ def load_prompt_config(config_file: Path = DEFAULT_CONFIG_FILE) -> Dict[str, Any
         Dictionary of prompt configurations
     """
     with open(config_file, 'r') as f:
-        return yaml.safe_load(f)
+        content = f.read()
+    
+    # Render with Jinja2 using environment variables
+    template = Template(content)
+    rendered_content = template.render(env=os.environ)
+    
+    return yaml.safe_load(rendered_content)
+
+
+def get_default_model(config_file: Path = DEFAULT_CONFIG_FILE) -> str:
+    """Get the default model from prompt configuration."""
+    config = load_prompt_config(config_file)
+    return config.get("default_model", "gpt-5-mini-2025-08-07")
 
 
 def get_prompt_style(style: str = "analytical", config_file: Path = DEFAULT_CONFIG_FILE) -> str:

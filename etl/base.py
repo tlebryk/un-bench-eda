@@ -30,7 +30,12 @@ class BaseLoader:
 
     def normalize_symbol(self, symbol: str) -> str:
         """Normalize document symbols (A_RES_78_220 -> A/RES/78/220)"""
-        return symbol.strip().upper().replace("_", "/")
+        # Remove spaces around slashes and dots
+        # e.g. "A/78/L.92/ Rev.1" -> "A/78/L.92/Rev.1"
+        s = symbol.strip().upper().replace("_", "/")
+        s = s.replace("/ ", "/")
+        s = s.replace(" .", ".")
+        return s
 
     def parse_date(self, date_str: str) -> Optional[datetime]:
         """Parse UN date format: '[New York] : UN, 16 Oct. 2023'"""

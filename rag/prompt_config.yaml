@@ -1,5 +1,7 @@
 # RAG prompt configurations for different answer styles
 
+default_model: "gpt-5-mini-2025-08-07"
+
 strict:
   name: "Strict Evidence-Based"
   description: "Conservative approach with explicit source citations and clear separation of what's known vs unknown"

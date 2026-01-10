@@ -1,8 +1,10 @@
 """Load meetings and extract voting records and utterances from parsed PDF meetings"""
 
 from pathlib import Path
+from typing import List
 from etl.base import BaseLoader
-from db.models import Document, Vote, Utterance, UtteranceDocument
+from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent, DocumentRelationship
+import re
 
 
 class MeetingLoader(BaseLoader):
@@ -110,6 +112,8 @@ class MeetingLoader(BaseLoader):
         votes_extracted = 0
         position_in_meeting = 0
         
+        relationship_targets = set()
+
         for section in data.get("sections", []):
             agenda_item_number = section.get("agenda_item_number")
             # For ranges, agenda_item_number will be like "90-106"
@@ -141,9 +145,13 @@ class MeetingLoader(BaseLoader):
                 
                 if utterance:
                     utterances_extracted += 1
-                    
-                    # Link utterance to referenced documents (both utterance-level and section-level)
-                    self._link_utterance_to_documents(utterance, utterance_data, section_documents)
+
+                    linked_docs = self._link_utterance_to_documents(
+                        utterance,
+                        utterance_data,
+                        section_documents
+                    )
+                    self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
                     
                     # Extract votes if this utterance contains vote information
                     resolution_metadata = utterance_data.get("resolution_metadata")
@@ -153,6 +161,11 @@ class MeetingLoader(BaseLoader):
                             utterance_data
                         )
                         votes_extracted += vote_count
+
+                    # Extract procedural events
+                    procedural_events = utterance_data.get("procedural_events")
+                    if procedural_events:
+                        votes_extracted += self._extract_procedural_events(utterance, procedural_events, doc)
 
         if utterances_extracted > 0 or votes_extracted > 0:
             self.stats["loaded"] += 1
@@ -213,7 +226,8 @@ class MeetingLoader(BaseLoader):
         
         return utterance
     
-    def _link_utterance_to_documents(self, utterance: Utterance, utterance_data: dict, section_documents: list = None):
+    def _link_utterance_to_documents(self, utterance: Utterance, utterance_data: dict,
+                                    section_documents: list = None) -> List[Document]:
         """Link utterance to documents it references (drafts, resolutions, agenda items)"""
         # Get documents mentioned in the utterance
         documents = utterance_data.get("documents", [])
@@ -224,6 +238,7 @@ class MeetingLoader(BaseLoader):
         
         # Track which documents we've already linked to avoid duplicates
         linked_doc_ids = set()
+        linked_documents: List[Document] = []
         
         for doc_ref in documents:
             # Handle both string and dict formats
@@ -267,6 +282,7 @@ class MeetingLoader(BaseLoader):
                     )
                     self.session.add(link)
                     linked_doc_ids.add(doc.id)
+                    linked_documents.append(doc)
         
         # Also check resolution_metadata for resolution links
         resolution_metadata = utterance_data.get("resolution_metadata", {})
@@ -276,7 +292,7 @@ class MeetingLoader(BaseLoader):
                 resolution_symbol = self.normalize_symbol(resolution_symbol)
                 resolution_doc = self.session.query(Document).filter_by(symbol=resolution_symbol).first()
                 
-                if resolution_doc:
+                if resolution_doc and resolution_doc.id not in linked_doc_ids:
                     # Check if link already exists
                     existing_link = self.session.query(UtteranceDocument).filter_by(
                         utterance_id=utterance.id,
@@ -291,6 +307,41 @@ class MeetingLoader(BaseLoader):
                             context=""
                         )
                         self.session.add(link)
+                        linked_doc_ids.add(resolution_doc.id)
+                        linked_documents.append(resolution_doc)
+
+        return linked_documents
+
+    def _ensure_meeting_relationships(self, meeting_doc: Document,
+                                      linked_docs: List[Document],
+                                      seen_doc_ids: set):
+        """Ensure meeting → document relationships exist for linked drafts/resolutions."""
+        if not linked_docs:
+            return
+
+        for linked_doc in linked_docs:
+            if not linked_doc or not linked_doc.id:
+                continue
+            if linked_doc.doc_type not in {"resolution", "draft"}:
+                continue
+            if linked_doc.id in seen_doc_ids:
+                continue
+
+            existing = self.session.query(DocumentRelationship).filter_by(
+                source_id=meeting_doc.id,
+                target_id=linked_doc.id,
+                relationship_type="meeting_record_for"
+            ).first()
+
+            if not existing:
+                rel = DocumentRelationship(
+                    source_id=meeting_doc.id,
+                    target_id=linked_doc.id,
+                    relationship_type="meeting_record_for"
+                )
+                self.session.add(rel)
+
+            seen_doc_ids.add(linked_doc.id)
     
     def _extract_votes_from_utterance(self, resolution_metadata: dict, utterance_data: dict) -> int:
         """Extract vote records from utterance resolution_metadata"""
@@ -310,7 +361,7 @@ class MeetingLoader(BaseLoader):
         
         return self._load_votes_from_meeting(resolution_doc.id, vote_details)
     
-    def _load_votes_from_meeting(self, doc_id: int, vote_details: dict) -> int:
+    def _load_votes_from_meeting(self, doc_id: int, vote_details: dict, vote_event_id: int = None) -> int:
         """Load vote records from meeting vote_details"""
         vote_types = {
             'in_favour': vote_details.get('in_favour', []),
@@ -331,17 +382,23 @@ class MeetingLoader(BaseLoader):
                 actor_id = self.get_or_create_actor(country)
 
                 # Check if vote already exists (avoid duplicates)
-                existing_vote = self.session.query(Vote).filter_by(
-                    document_id=doc_id,
-                    actor_id=actor_id,
-                    vote_type=vote_type
-                ).first()
+                criteria = {'actor_id': actor_id, 'vote_type': vote_type}
+                if doc_id:
+                    criteria['document_id'] = doc_id
+                if vote_event_id:
+                    criteria['vote_event_id'] = vote_event_id
+
+                if not doc_id and not vote_event_id:
+                    continue
+
+                existing_vote = self.session.query(Vote).filter_by(**criteria).first()
 
                 if existing_vote:
                     continue
 
                 vote = Vote(
                     document_id=doc_id,
+                    vote_event_id=vote_event_id,
                     actor_id=actor_id,
                     vote_type=vote_type,
                     vote_context='plenary'
@@ -350,6 +407,57 @@ class MeetingLoader(BaseLoader):
                 vote_count += 1
 
         return vote_count
+
+    def _extract_procedural_events(self, utterance: Utterance, events: list, meeting_doc: Document) -> int:
+        """Extract procedural events and linked votes"""
+        votes_count = 0
+        for event_data in events:
+            # Try to resolve target document (Draft)
+            target_doc_id = None
+            draft_id = event_data.get('draft_resolution_identifier')
+            
+            if draft_id:
+                # Case 1: Full symbol (e.g. A/78/L.108)
+                if '/' in draft_id:
+                    symbol = self.normalize_symbol(draft_id)
+                    target_doc = self.session.query(Document).filter_by(symbol=symbol).first()
+                    if target_doc:
+                        target_doc_id = target_doc.id
+                        print(f"  ✓ Linked event to draft: {symbol} (ID: {target_doc.id})")
+                    else:
+                        print(f"  ✗ Could not find target draft for event: {symbol} (raw: {draft_id})")
+                
+                # Case 2: Short form (e.g. L.19) -> Construct full symbol
+                elif re.match(r'L\.\d+', draft_id):
+                    symbol = f"A/{meeting_doc.session}/{draft_id}"
+                    target_doc = self.session.query(Document).filter_by(symbol=symbol).first()
+                    if target_doc:
+                        target_doc_id = target_doc.id
+            
+            # If no draft ID found but we have a resolution symbol, try that
+            if not target_doc_id and event_data.get('resolution_symbol'):
+                res_symbol = self.normalize_symbol(event_data['resolution_symbol'])
+                target_doc = self.session.query(Document).filter_by(symbol=res_symbol).first()
+                if target_doc:
+                    target_doc_id = target_doc.id
+
+            vote_event = VoteEvent(
+                meeting_id=meeting_doc.id,
+                utterance_id=utterance.id,
+                target_document_id=target_doc_id,
+                event_type=event_data.get('event_type'),
+                description=event_data.get('description'),
+                result=event_data.get('adoption_status')
+            )
+            self.session.add(vote_event)
+            self.session.flush()
+
+            # Extract votes if present
+            vote_details = event_data.get('vote_details')
+            if vote_details:
+                 votes_count += self._load_votes_from_meeting(None, vote_details, vote_event_id=vote_event.id)
+        
+        return votes_count
 
     def parse_meeting_date(self, datetime_str: str):
         """Parse meeting datetime: 'Tuesday, 9 January 2024, 10 a.m.'"""

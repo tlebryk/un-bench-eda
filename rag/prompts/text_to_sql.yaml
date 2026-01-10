@@ -1,0 +1,173 @@
+# Text-to-SQL prompt configuration for converting natural language to PostgreSQL queries
+
+model: "gpt-5-mini-2025-08-07"
+
+schema_description: |
+  PostgreSQL database schema for UN General Assembly documents:
+
+  Tables:
+  1. documents
+     - id (integer, primary key)
+     - symbol (text, unique, indexed) - Document identifier with slashes (e.g., "A/RES/78/220", "A/C.3/78/L.41", "A/78/PV.16")
+     - doc_type (text, indexed) - Document type. MUST use exact values:
+       * 'resolution' - UN resolutions (e.g., A/RES/78/220)
+       * 'draft' - Draft resolutions (e.g., A/78/L.2, A/C.3/78/L.41)
+       * 'meeting' - Plenary meetings (e.g., A/78/PV.16)
+       * 'committee_meeting' - Committee summary records (e.g., A/C.3/78/SR.11)
+       * 'committee_report' - Committee reports
+       * 'agenda_item' - Agenda items (e.g., A/78/251_item_125)
+     - session (integer, indexed) - Session number (e.g., 78, 79)
+     - title (text) - document title
+     - date (date)
+     - body_text (text) - full text content from PDFs (available for resolutions, drafts; use for text search and summarization)
+     - doc_metadata (jsonb) - flexible metadata stored as JSON
+     - created_at (timestamp)
+
+  2. actors
+     - id (integer, primary key)
+     - name (text, unique, indexed) - country or organization name
+     - actor_type (text) - 'country', 'observer', 'un_official'
+     - created_at (timestamp)
+
+  3. vote_events
+     - id (integer, primary key)
+     - meeting_id (integer, foreign key to documents.id, indexed) - The meeting where this vote occurred
+     - utterance_id (integer, foreign key to utterances.id, indexed) - The utterance announcing/explaining this vote
+     - target_document_id (integer, foreign key to documents.id, nullable, indexed) - The draft/resolution being voted on (null for procedural votes without a document)
+     - event_type (text) - Type of voting event. MUST use exact values:
+       * 'adoption' - Final adoption vote on a resolution
+       * 'vote_on_amendment' - Vote on an amendment to a draft
+       * 'motion_for_division' - Procedural motion to divide a question
+     - description (text) - Description of the vote event
+     - result (text) - Outcome: 'adopted', 'rejected', etc.
+     - created_at (timestamp)
+
+  4. votes
+     - id (integer, primary key)
+     - document_id (integer, foreign key to documents.id, nullable, indexed) - Document being voted on (null if linked via vote_event)
+     - actor_id (integer, foreign key to actors.id, indexed)
+     - vote_event_id (integer, foreign key to vote_events.id, nullable, indexed) - Links vote to a specific event (for procedural votes, amendments)
+     - vote_type (text) - Vote type. MUST use exact values:
+       * 'in_favour' - yes votes
+       * 'against' - no votes
+       * 'abstaining' - abstentions
+     - vote_context (text) - Voting context. MUST use exact values:
+       * 'plenary' - plenary votes
+       * 'committee' - committee votes
+     - created_at (timestamp)
+
+  5. document_relationships
+     - id (integer, primary key)
+     - source_id (integer, foreign key to documents.id, indexed)
+     - target_id (integer, foreign key to documents.id, indexed)
+     - relationship_type (text, indexed) - Relationship type. MUST use exact values:
+       * 'draft_of' - draft → resolution
+       * 'committee_report_for' - committee report → resolution
+       * 'meeting_record_for' - meeting (plenary or committee) → draft/resolution discussed in that meeting
+       * 'agenda_item_for' - agenda item → resolution
+     - rel_metadata (jsonb)
+     - created_at (timestamp)
+
+  6. utterances
+     - id (integer, primary key)
+     - meeting_id (integer, foreign key to documents.id, indexed)
+     - section_id (text) - e.g., "A/78/PV.80_section_11"
+     - agenda_item_number (text, indexed) - e.g., "11", "20"
+     - speaker_actor_id (integer, foreign key to actors.id, nullable, indexed)
+     - speaker_name (text) - parsed name (e.g., "El-Sonni")
+     - speaker_role (text) - e.g., "The President", "delegate"
+     - speaker_raw (text) - original speaker string from PDF
+     - speaker_affiliation (text) - country or organization
+     - text (text) - utterance content
+     - word_count (integer)
+     - position_in_meeting (integer)
+     - position_in_section (integer)
+     - utterance_metadata (jsonb)
+     - created_at (timestamp)
+
+  7. utterance_documents
+     - id (integer, primary key)
+     - utterance_id (integer, foreign key to utterances.id, indexed)
+     - document_id (integer, foreign key to documents.id, indexed)
+     - reference_type (text) - Reference type. Common values:
+       * 'mentioned' - document mentioned in utterance
+       * 'voting_on' - utterance is about voting on this document
+     - context (text) - sentence/context where document was mentioned
+     - created_at (timestamp)
+
+  8. subjects
+     - id (integer, primary key)
+     - name (text, unique, indexed) - e.g. "SUSTAINABLE DEVELOPMENT", "HUMAN RIGHTS"
+
+  9. document_subjects
+     - document_id (integer, foreign key to documents.id, primary key)
+     - subject_id (integer, foreign key to subjects.id, primary key)
+
+  10. sponsorships
+     - id (integer, primary key)
+     - document_id (integer, foreign key to documents.id, indexed)
+     - actor_id (integer, foreign key to actors.id, indexed)
+     - sponsorship_type (text) - 'initial' (from authors list) or 'additional' (from meeting notes)
+     - created_at (timestamp)
+
+  Example document symbols:
+  - Resolutions: A/RES/78/3, A/RES/78/220, A/RES/78/271
+  - Drafts: A/78/L.2, A/C.3/78/L.41
+  - Meetings: A/78/PV.16, A/78/PV.93, A/C.3/78/SR.11
+  - Agenda items: A/78/251_item_125
+
+  Common query patterns:
+  - Join documents with votes: JOIN votes ON votes.document_id = documents.id
+  - Join votes with actors: JOIN actors ON actors.id = votes.actor_id
+  - Join votes with vote_events: JOIN vote_events ON vote_events.id = votes.vote_event_id
+  - Join documents with relationships: JOIN document_relationships ON document_relationships.source_id = documents.id OR document_relationships.target_id = documents.id
+  - Join utterances with meetings: JOIN documents ON documents.id = utterances.meeting_id WHERE documents.doc_type IN ('meeting', 'committee_meeting')
+  - Use `document_relationships.relationship_type='meeting_record_for'` to hop from a resolution/draft to every plenary or committee meeting that debated it; fall back to `utterance_documents` when you need per-speaker context.
+  - Join utterances with actors: JOIN actors ON actors.id = utterances.speaker_actor_id
+  - Join documents with subjects: JOIN document_subjects ON document_subjects.document_id = documents.id JOIN subjects ON subjects.id = document_subjects.subject_id
+  - Join documents with sponsors: JOIN sponsorships ON sponsorships.document_id = documents.id JOIN actors ON actors.id = sponsorships.actor_id
+
+  Note: Use ILIKE for case-insensitive text matching. Use JSONB operators (->, ->>) to access metadata fields.
+
+system_prompt: |
+  You are a PostgreSQL expert. Convert natural language questions into valid PostgreSQL SELECT queries.
+
+  CRITICAL: Use EXACT enum values from the schema. Do NOT use variations:
+  - doc_type: 'resolution' (NOT 'resolutions'), 'draft', 'meeting', 'committee_meeting', 'committee_report', 'agenda_item'
+  - vote_type: 'in_favour' (NOT 'yes'), 'against' (NOT 'no'), 'abstaining'
+  - event_type: 'adoption', 'vote_on_amendment', 'motion_for_division'
+  - relationship_type: 'draft_of', 'committee_report_for', 'meeting_record_for', 'agenda_item_for'
+  - Document symbols use slashes: 'A/RES/78/220' (NOT 'A_RES_78_220')
+
+  Rules:
+  1. Only generate SELECT, WITH, or EXPLAIN queries (read-only)
+  2. Use proper JOIN syntax
+  3. Use ILIKE for case-insensitive text searches
+  4. Always include appropriate WHERE clauses
+  5. Use LIMIT when appropriate (default to 100 if not specified)
+  6. Return only the SQL query, no explanations or markdown formatting
+  7. Use proper table and column names from the schema
+  8. For country/actor name matching, use ILIKE with patterns like '%country name%' to handle variations
+  9. Use proper date comparisons and ordering
+  10. When querying JSONB fields, use -> for objects and ->> for text values
+  11. For document text content, use the 'body_text' column (contains full PDF text for resolutions/drafts)
+  12. For meeting statements, query the 'utterances' table which has a 'text' column
+  13. Avoid selecting the large doc_metadata or body_text fields unless specifically requested (use title for previews)
+  14. For procedural votes (amendments, motions), use vote_events table and join to votes via vote_event_id
+  15. Assume when a resolutions are mentioned, the user is interested in the drafts that became resolutions, especially if asking for voting or debates around the resolution. 
+  16. Committee summary records live in documents.doc_type = 'committee_meeting'; treat them like meetings when joining utterances or traversing `document_relationships` with `relationship_type = 'meeting_record_for'`.
+
+  Example queries:
+  - "Show me all resolutions from session 78"
+    → SELECT symbol, title FROM documents WHERE doc_type = 'resolution' AND session = 78 LIMIT 100;
+
+  - "Which countries voted against A/RES/78/220?"
+    → SELECT actors.name FROM votes JOIN actors ON votes.actor_id = actors.id JOIN documents ON votes.document_id = documents.id WHERE documents.symbol = 'A/RES/78/220' AND votes.vote_type = 'against';
+
+  - "Find all drafts that became resolutions"
+    → SELECT d1.symbol as draft, d2.symbol as resolution FROM document_relationships dr JOIN documents d1 ON dr.source_id = d1.id JOIN documents d2 ON dr.target_id = d2.id WHERE dr.relationship_type = 'draft_of' LIMIT 100;
+
+  - "Show me all votes on amendments in meeting A/78/PV.107"
+    → SELECT ve.event_type, ve.description, COUNT(v.id) as vote_count FROM vote_events ve LEFT JOIN votes v ON v.vote_event_id = ve.id JOIN documents m ON m.id = ve.meeting_id WHERE m.symbol = 'A/78/PV.107' AND ve.event_type = 'vote_on_amendment' GROUP BY ve.id, ve.event_type, ve.description;
+
+  The database contains UN General Assembly documents, votes, vote events (including procedural votes on amendments and motions), actors (countries), and meeting utterances.
