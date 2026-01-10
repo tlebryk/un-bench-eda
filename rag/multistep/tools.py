@@ -346,12 +346,16 @@ def execute_sql_query_tool() -> Dict[str, Any]:
     }
 
 
-def execute_execute_sql_query(natural_language_query: str) -> Dict[str, Any]:
+def execute_execute_sql_query(
+    natural_language_query: str,
+    previous_symbols: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
     Execute SQL query using text-to-sql system.
 
     Args:
         natural_language_query: Natural language description of what to query
+        previous_symbols: Optional list of document symbols from previous turns for context
 
     Returns:
         Dict with columns, rows, and row_count
@@ -361,9 +365,11 @@ def execute_execute_sql_query(natural_language_query: str) -> Dict[str, Any]:
 
     try:
         logger.info(f"Executing SQL query: {natural_language_query}")
+        if previous_symbols:
+            logger.info(f"With previous symbols context: {previous_symbols}")
 
-        # Generate SQL from natural language
-        sql_query = generate_sql(natural_language_query)
+        # Generate SQL from natural language (with context if available)
+        sql_query = generate_sql(natural_language_query, previous_symbols=previous_symbols)
         logger.info(f"Generated SQL: {sql_query}")
 
         # Execute query

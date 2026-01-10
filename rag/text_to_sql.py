@@ -5,7 +5,7 @@ import sys
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from dotenv import load_dotenv
 from openai import OpenAI
 import yaml
@@ -129,7 +129,12 @@ def validate_sql(sql: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def generate_sql(natural_language_query: str, model: Optional[str] = None, validate: bool = True) -> Optional[str]:
+def generate_sql(
+    natural_language_query: str,
+    model: Optional[str] = None,
+    validate: bool = True,
+    previous_symbols: Optional[List[str]] = None
+) -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
 
@@ -137,6 +142,7 @@ def generate_sql(natural_language_query: str, model: Optional[str] = None, valid
         natural_language_query: The natural language question
         model: OpenAI model to use (default: configured model)
         validate: Whether to validate the generated SQL for security (default: True)
+        previous_symbols: Optional list of document symbols from previous conversation turns
 
     Returns:
         SQL query string or None if generation fails
@@ -149,12 +155,25 @@ def generate_sql(natural_language_query: str, model: Optional[str] = None, valid
         model = DEFAULT_MODEL
 
     logger.info(f"Generating SQL from natural language query (model: {model}): {natural_language_query}")
+    if previous_symbols:
+        logger.info(f"With previous symbols context: {previous_symbols}")
 
     client = get_client()
 
     try:
+        # Build context section if we have previous symbols
+        context_section = ""
+        if previous_symbols:
+            context_section = f"""
+
+CONVERSATION CONTEXT:
+Previously referenced documents: {', '.join(previous_symbols)}
+If the question references 'these', 'they', 'it', 'the resolutions', etc., it likely refers to the documents listed above.
+When filtering by document symbols, use: WHERE symbol IN ({', '.join(f"'{s}'" for s in previous_symbols)})
+"""
+
         # Use standard OpenAI chat completions API
-        prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + f"\n\nConvert this question to SQL: {natural_language_query}"
+        prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + context_section + f"\n\nConvert this question to SQL: {natural_language_query}"
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],

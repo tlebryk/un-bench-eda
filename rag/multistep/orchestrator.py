@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from collections import defaultdict
 import json
 import logging
@@ -40,9 +40,9 @@ class MultiStepOrchestrator:
         # Tool definitions
         self.tools = [
             execute_sql_query_tool(),
-            # get_related_documents_tool(),
-            # get_votes_tool(),
-            # get_utterances_tool(),
+            get_related_documents_tool(),
+            get_votes_tool(),
+            get_utterances_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -54,27 +54,54 @@ class MultiStepOrchestrator:
             "get_utterances": execute_get_utterances,
         }
 
-    def answer_multistep(self, question: str) -> Dict[str, Any]:
+    def answer_multistep(
+        self,
+        question: str,
+        mode: str = "deep",
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        previous_symbols: Optional[Set[str]] = None
+    ) -> Dict[str, Any]:
         """
         Answer complex question using multi-step tool calling.
+
+        Args:
+            question: The user's question.
+            mode: "deep" (default) for agentic loop, "fast" for direct SQL->Answer.
+            conversation_history: Previous conversation input_list for multi-turn.
+            previous_symbols: Document symbols from previous turns for context.
 
         Returns: {
             "answer": str,
             "evidence": List[Dict],
             "sources": List[str],
-            "steps": List[Dict]  # Tool calls made
+            "steps": List[Dict],  # Tool calls made
+            "input_list": List[Dict],  # Full conversation for storage
+            "accumulated_evidence": Dict[str, List]  # Evidence for storage
         }
         """
+        if mode == "fast":
+            return self._answer_fast(question, previous_symbols=previous_symbols)
+
         logger.info(f"\n\n{'#'*60}")
-        logger.info(f"🚀 STARTING MULTI-STEP QUERY")
+        logger.info(f"🚀 STARTING MULTI-STEP QUERY (Deep Mode)")
         logger.info(f"❓ Question: {question}")
+        if conversation_history:
+            logger.info(f"📜 Continuing conversation with {len(conversation_history)} previous messages")
+        if previous_symbols:
+            logger.info(f"📎 Previous symbols: {previous_symbols}")
         logger.info(f"{'#'*60}\n")
 
-        # Initialize conversation
-        input_list = [
-            {"role": "system", "content": MULTISTEP_SYSTEM_PROMPT},
-            {"role": "user", "content": question}
-        ]
+        # Initialize conversation - continue from history or start fresh
+        if conversation_history:
+            # Continue from existing conversation
+            input_list = conversation_history.copy()
+            input_list.append({"role": "user", "content": question})
+        else:
+            # New conversation
+            input_list = [
+                {"role": "system", "content": MULTISTEP_SYSTEM_PROMPT},
+                {"role": "user", "content": question}
+            ]
 
         steps_taken = []
         accumulated_evidence = defaultdict(list)
@@ -225,7 +252,10 @@ class MultiStepOrchestrator:
                 "evidence": final_result["evidence"],
                 "sources": final_result["sources"],
                 "steps": steps_taken,
-                "row_count": formatted_evidence.get("row_count", 0)
+                "row_count": formatted_evidence.get("row_count", 0),
+                # Include conversation state for storage
+                "input_list": input_list,
+                "accumulated_evidence": dict(accumulated_evidence)
             }
 
             logger.info(f"\n{'#'*60}")
@@ -394,4 +424,93 @@ class MultiStepOrchestrator:
             "row_count": len(rows),
             "truncated": False
         }
+
+    def _answer_fast(
+        self,
+        question: str,
+        previous_symbols: Optional[Set[str]] = None
+    ) -> Dict[str, Any]:
+        """Fast mode: Direct NL -> SQL -> Answer pipeline."""
+        logger.info(f"\n\n{'#'*60}")
+        logger.info(f"🚀 STARTING FAST QUERY (Direct SQL)")
+        logger.info(f"❓ Question: {question}")
+        if previous_symbols:
+            logger.info(f"📎 Previous symbols for context: {previous_symbols}")
+        logger.info(f"{'#'*60}\n")
+
+        start_time = time.time()
+        steps_taken = []
+
+        # Step 1: Execute SQL (with previous_symbols context if available)
+        tool_name = "execute_sql_query"
+        logger.info(f"Executing {tool_name} directly...")
+
+        try:
+            # We use the executor directly
+            # Pass previous_symbols for context-aware SQL generation
+            result = self.executors[tool_name](
+                natural_language_query=question,
+                previous_symbols=list(previous_symbols) if previous_symbols else None
+            )
+            execution_time = time.time() - start_time
+
+            steps_taken.append({
+                "tool": tool_name,
+                "arguments": {"natural_language_query": question},
+                "result": result,
+                "execution_time": execution_time
+            })
+
+            logger.info(f"✅ SQL execution completed in {execution_time:.2f}s")
+
+        except Exception as e:
+            logger.error(f"Fast mode SQL failed: {e}", exc_info=True)
+            return {
+                "answer": f"I failed to execute the query. Error: {str(e)}",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+
+        # Step 2: Synthesize Answer
+        logger.info("🔄 Synthesizing answer...")
+        
+        # Lazy import
+        from rag.rag_qa import answer_question
+        
+        try:
+            # result from execute_sql_query matches the structure needed for rag_qa
+            # (it has columns, rows, sql_query)
+            final_result = answer_question(
+                query_results=result,
+                original_question=question,
+                sql_query=result.get("sql_query"),
+                model=self.model
+            )
+
+            return {
+                "answer": final_result["answer"],
+                "evidence": final_result["evidence"],
+                "sources": final_result["sources"],
+                "steps": steps_taken,
+                "row_count": result.get("row_count", 0),
+                # Include empty conversation state for consistency
+                "input_list": [],
+                "accumulated_evidence": {"execute_sql_query": [result]}
+            }
+
+        except Exception as e:
+            logger.error(f"Fast mode synthesis failed: {e}", exc_info=True)
+            return {
+                "answer": "I found data but failed to generate an answer.",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
 
