@@ -1302,6 +1302,130 @@ def answer_with_evidence_tool() -> Dict[str, Any]:
                     "description": "Set to true when ready to answer"
                 }
             },
-            "required": ["ready"]
         }
     }
+
+
+# Tool 10: Get Full Text Context (New Baseline)
+
+def get_full_text_context_tool() -> Dict[str, Any]:
+    """Get full text of a resolution and all its related documents."""
+    return {
+        "type": "function",
+        "name": "get_full_text_context",
+        "description": "Get the FULL text content of a resolution and all its directly related documents (drafts, committee reports, meeting records). Use this as the primary tool to understand the complete context of a resolution, including what was said in meetings (meeting records contain the full transcript/text).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Resolution symbol, e.g., 'A/RES/78/225'"
+                }
+            },
+            "required": ["symbol"]
+        }
+    }
+
+
+def execute_get_full_text_context(symbol: str) -> Dict[str, Any]:
+    """
+    Execute full text context fetch.
+    
+    Args:
+        symbol: Resolution symbol
+        
+    Returns:
+        Dict with full text of resolution, drafts, reports, and meetings.
+    """
+    from db.config import get_session
+    from db.models import Document, DocumentRelationship
+    
+    session = get_session()
+    try:
+        logger.info(f"Getting full text context for {symbol}")
+        
+        # 1. Get the main document
+        doc = session.query(Document).filter(Document.symbol == symbol).first()
+        if not doc:
+            return {
+                "symbol": symbol,
+                "error": "Document not found"
+            }
+            
+        result = {
+            "symbol": symbol,
+            "resolution": {
+                "symbol": doc.symbol,
+                "title": doc.title,
+                "date": str(doc.date) if doc.date else None,
+                "text": doc.body_text
+            },
+            "drafts": [],
+            "committee_reports": [],
+            "meetings": [],
+            "agenda_items": []
+        }
+        
+        # 2. Get related documents
+        # We query for documents that are sources of relationships to this target
+        query = text("""
+            SELECT 
+                d.symbol, 
+                d.doc_type, 
+                d.title,
+                d.date,
+                d.body_text,
+                dr.relationship_type
+            FROM documents d
+            JOIN document_relationships dr ON dr.source_id = d.id
+            WHERE dr.target_id = :doc_id
+            ORDER BY d.date DESC, d.symbol
+        """)
+        
+        related_docs = session.execute(query, {"doc_id": doc.id}).fetchall()
+        
+        meetings_buffer = []
+        
+        for row in related_docs:
+            r_symbol, r_type, r_title, r_date, r_text, rel_type = row
+            
+            item = {
+                "symbol": r_symbol,
+                "title": r_title,
+                "date": str(r_date) if r_date else None,
+                "text": r_text
+            }
+            
+            # Map by relationship or doc type
+            if rel_type == "meeting_record_for" or r_type in ["meeting", "committee_meeting"]:
+                result["meetings"].append(item)
+            elif rel_type == "draft_of" or r_type == "draft":
+                result["drafts"].append(item)
+            elif rel_type == "committee_report_for" or r_type == "committee_report":
+                result["committee_reports"].append(item)
+            elif rel_type == "agenda_item_for" or r_type in ["agenda", "agenda_item"]:
+                # Agenda items usually don't have text, but include for metadata
+                result["agenda_items"].append({
+                    "symbol": r_symbol,
+                    "title": r_title
+                })
+        
+        # Calculate stats for logging
+        stats = {
+            "drafts": len(result["drafts"]),
+            "reports": len(result["committee_reports"]),
+            "meetings": len(result["meetings"])
+        }
+        logger.info(f"Found context: {stats}")
+        
+        return result
+
+    except Exception as e:
+        logger.error(f"Error fetching full context for {symbol}: {e}", exc_info=True)
+        return {
+            "symbol": symbol,
+            "error": str(e)
+        }
+    finally:
+        session.close()
+

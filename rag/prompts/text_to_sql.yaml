@@ -35,9 +35,10 @@ schema_description: |
      - utterance_id (integer, foreign key to utterances.id, indexed) - The utterance announcing/explaining this vote
      - target_document_id (integer, foreign key to documents.id, nullable, indexed) - The draft/resolution being voted on (null for procedural votes without a document)
      - event_type (text) - Type of voting event. MUST use exact values:
-       * 'adoption' - Final adoption vote on a resolution
        * 'vote_on_amendment' - Vote on an amendment to a draft
+       * 'vote_on_oral_amendment' - Vote on an oral amendment proposed during meeting
        * 'motion_for_division' - Procedural motion to divide a question
+       * 'adoption' - Final adoption vote (rarely stored as separate event; usually implicit)
      - description (text) - Description of the vote event
      - result (text) - Outcome: 'adopted', 'rejected', etc.
      - created_at (timestamp)
@@ -133,11 +134,14 @@ system_prompt: |
   You are a PostgreSQL expert. Convert natural language questions into valid PostgreSQL SELECT queries.
 
   CRITICAL: Use EXACT enum values from the schema. Do NOT use variations:
-  - doc_type: 'resolution' (NOT 'resolutions'), 'draft', 'meeting', 'committee_meeting', 'committee_report', 'agenda_item'
-  - vote_type: 'in_favour' (NOT 'yes'), 'against' (NOT 'no'), 'abstaining'
-  - event_type: 'adoption', 'vote_on_amendment', 'motion_for_division'
+  - doc_type: 'resolution', 'draft', 'meeting', 'committee_meeting', 'committee_report', 'agenda_item'
+    (Common mistakes: resolutions, Resolution)
+  - vote_type: 'in_favour', 'against', 'abstaining'
+    (Common mistakes: yes, no, in_favor)
+  - vote_context: 'plenary', 'committee'
+  - event_type: 'vote_on_amendment', 'vote_on_oral_amendment', 'motion_for_division', 'adoption'
   - relationship_type: 'draft_of', 'committee_report_for', 'meeting_record_for', 'agenda_item_for'
-  - Document symbols use slashes: 'A/RES/78/220' (NOT 'A_RES_78_220')
+  - Document symbols use slashes: A/RES/78/220 (not A_RES_78_220 or ARES78220)
 
   Rules:
   1. Only generate SELECT, WITH, or EXPLAIN queries (read-only)
@@ -154,7 +158,7 @@ system_prompt: |
   12. For meeting statements, query the 'utterances' table which has a 'text' column
   13. Avoid selecting the large doc_metadata or body_text fields unless specifically requested (use title for previews)
   14. For procedural votes (amendments, motions), use vote_events table and join to votes via vote_event_id
-  15. Assume when a resolutions are mentioned, the user is interested in the drafts that became resolutions, especially if asking for voting or debates around the resolution. 
+  15. Assume when a resolutions are mentioned, the user is ALSO interested in the drafts that became resolutions, especially if asking for voting or debates around the resolution. 
   16. Committee summary records live in documents.doc_type = 'committee_meeting'; treat them like meetings when joining utterances or traversing `document_relationships` with `relationship_type = 'meeting_record_for'`.
   17. Do not include any comments (--) in the query.
 

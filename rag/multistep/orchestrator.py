@@ -16,9 +16,10 @@ from rag.multistep.tools import (
     get_chain_utterances_tool, execute_get_chain_utterances,
     get_document_details_tool, execute_get_document_details,
     execute_sql_query_tool, execute_execute_sql_query,
-    answer_with_evidence_tool
+    answer_with_evidence_tool,
+    get_full_text_context_tool, execute_get_full_text_context
 )
-from rag.multistep.prompts import MULTISTEP_SYSTEM_PROMPT
+from rag.prompt_registry import get_prompt
 from rag.prompt_config import get_default_model
 
 # Set up logging
@@ -50,20 +51,22 @@ class MultiStepOrchestrator:
             get_vote_events_tool(),
             # get_utterances_tool(),
             # get_related_utterances_tool(),
-            get_chain_utterances_tool(),
+            # get_chain_utterances_tool(),
+            get_full_text_context_tool(),
             answer_with_evidence_tool(),
         ]
 
         # Tool executors
         self.executors = {
             "execute_sql_query": execute_execute_sql_query,
-            "get_related_documents": execute_get_related_documents,
+            # "get_related_documents": execute_get_related_documents,
             "get_document_details": execute_get_document_details,
             "get_votes": execute_get_votes,
             "get_vote_events": execute_get_vote_events,
-            "get_utterances": execute_get_utterances,
-            "get_related_utterances": execute_get_related_utterances,
-            "get_chain_utterances": execute_get_chain_utterances,
+            # "get_utterances": execute_get_utterances,
+            # "get_related_utterances": execute_get_related_utterances,
+            # "get_chain_utterances": execute_get_chain_utterances,
+            "get_full_text_context": execute_get_full_text_context,
         }
 
     @staticmethod
@@ -122,244 +125,263 @@ class MultiStepOrchestrator:
             "accumulated_evidence": Dict[str, List]  # Evidence for storage
         }
         """
-        if mode == "fast":
-            return self._answer_fast(question, previous_symbols=previous_symbols)
+        # Set up request-specific logging
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        traj_log_file = log_dir / f"trajectory_{timestamp}.log"
+        
+        file_handler = logging.FileHandler(traj_log_file)
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        
+        # Attach handler to the module logger
+        logger.addHandler(file_handler)
+        
+        try:
+            if mode == "fast":
+                return self._answer_fast(question, previous_symbols=previous_symbols)
 
-        logger.info(f"\n\n{'#'*60}")
-        logger.info(f"🚀 STARTING MULTI-STEP QUERY (Deep Mode)")
-        logger.info(f"❓ Question: {question}")
-        if conversation_history:
-            logger.info(f"📜 Continuing conversation with {len(conversation_history)} previous messages")
-        if previous_symbols:
-            logger.info(f"📎 Previous symbols: {previous_symbols}")
-        logger.info(f"{'#'*60}\n")
+            logger.info(f"\n\n{'#'*60}")
+            logger.info(f"🚀 STARTING MULTI-STEP QUERY (Deep Mode)")
+            logger.info(f"❓ Question: {question}")
+            if conversation_history:
+                logger.info(f"📜 Continuing conversation with {len(conversation_history)} previous messages")
+            if previous_symbols:
+                logger.info(f"📎 Previous symbols: {previous_symbols}")
+            logger.info(f"{'#'*60}\n")
 
-        # Initialize conversation - continue from history or start fresh
-        if conversation_history:
-            # Continue from existing conversation
-            input_list = conversation_history.copy()
-            input_list.append({"role": "user", "content": question})
-        else:
-            # New conversation
-            input_list = [
-                {"role": "system", "content": MULTISTEP_SYSTEM_PROMPT},
-                {"role": "user", "content": question}
-            ]
+            # Initialize conversation - continue from history or start fresh
+            if conversation_history:
+                # Continue from existing conversation
+                input_list = conversation_history.copy()
+                input_list.append({"role": "user", "content": question})
+            else:
+                # New conversation
+                multistep_prompt = get_prompt("multistep")
+                input_list = [
+                    {"role": "system", "content": multistep_prompt},
+                    {"role": "user", "content": question}
+                ]
 
-        steps_taken = []
-        accumulated_evidence = defaultdict(list)
+            steps_taken = []
+            accumulated_evidence = defaultdict(list)
 
-        # Loop until answer is ready or max steps reached
-        for step_num in range(self.max_steps):
-            logger.info(f"Step {step_num + 1}/{self.max_steps}")
+            # Loop until answer is ready or max steps reached
+            for step_num in range(self.max_steps):
+                logger.info(f"Step {step_num + 1}/{self.max_steps}")
 
-            try:
-                # Ask model to select tool
-                # Note: using client.responses.create (beta) or standard chat completions depending on version
-                # The offboarding doc explicitly says: Use client.responses.create() API (NOT chat.completions.create)
-                # and references sample_oai_function_call.py
-                
-                logger.info(
-                    "OAI input (chars=%s): %s",
-                    self._estimate_input_chars(input_list),
-                    self._serialize_input_list(input_list)
-                )
-
-                response = self.client.responses.create(
-                    model=self.model,
-                    tools=self.tools,
-                    input=input_list,
-                )
-
-                if hasattr(response, "output"):
+                try:
+                    # Ask model to select tool
+                    # Note: using client.responses.create (beta) or standard chat completions depending on version
+                    # The offboarding doc explicitly says: Use client.responses.create() API (NOT chat.completions.create)
+                    # and references sample_oai_function_call.py
+                    
                     logger.info(
-                        "OAI response output: %s",
-                        self._serialize_response_output(response.output)
+                        "OAI input (chars=%s): %s",
+                        self._estimate_input_chars(input_list),
+                        self._serialize_input_list(input_list)
                     )
-                else:
-                    logger.warning("OAI response missing output attribute for logging.")
 
-                # Add model's output to conversation
-                if hasattr(response, 'output'):
-                    input_list += response.output
-                else:
-                    logger.error("Response object missing 'output' attribute")
-                    break
+                    response = self.client.responses.create(
+                        model=self.model,
+                        tools=self.tools,
+                        input=input_list,
+                    )
 
-                # Check for function calls
-                has_function_call = False
-                assistant_text = None
+                    if hasattr(response, "output"):
+                        logger.info(
+                            "OAI response output: %s",
+                            self._serialize_response_output(response.output)
+                        )
+                    else:
+                        logger.warning("OAI response missing output attribute for logging.")
 
-                # Iterate through output items to find function calls
-                # response.output is a list of items (Message, FunctionCall, etc.)
-                for item in response.output:
-                    if hasattr(item, 'type') and item.type == "function_call":
-                        has_function_call = True
-                        tool_name = item.name
-                        arguments = json.loads(item.arguments)
+                    # Add model's output to conversation
+                    if hasattr(response, 'output'):
+                        input_list += response.output
+                    else:
+                        logger.error("Response object missing 'output' attribute")
+                        break
 
-                        logger.info(f"\n{'='*60}")
-                        logger.info(f"🔧 TOOL CALL: {tool_name}")
-                        logger.info(f"📥 Arguments: {json.dumps(arguments, indent=2)}")
+                    # Check for function calls
+                    has_function_call = False
+                    assistant_text = None
 
-                        # Check if ready to answer
-                        if tool_name == "answer_with_evidence":
-                            logger.info("✅ Model indicated ready to synthesize answer")
-                            # Add dummy output to satisfy API requirements
-                            input_list.append({
-                                "type": "function_call_output",
-                                "call_id": item.call_id,
-                                "output": json.dumps({"ready": True})
-                            })
-                            logger.info(f"{'='*60}\n")
-                            # Break immediately - we're done gathering evidence
-                            break
-
-                        if tool_name in self.executors:
-                            # Execute tool
-                            start_time = time.time()
-                            try:
-                                result = self.executors[tool_name](**arguments)
-                                execution_time = time.time() - start_time
-
-                                # Log success with result summary
-                                logger.info(f"✅ Tool executed successfully in {execution_time:.2f}s")
-                                logger.info(f"📤 Result summary: {self._summarize_result(tool_name, result)}")
-                                logger.info(
-                                    "📦 Tool output (chars=%s): %s",
-                                    len(json.dumps(result, ensure_ascii=True)),
-                                    json.dumps(result, ensure_ascii=True)[:8000] + "...[truncated]" if len(json.dumps(result, ensure_ascii=True)) > 8000 else json.dumps(result, ensure_ascii=True)
-                                )
-
-                            except Exception as e:
-                                execution_time = time.time() - start_time
-                                logger.error(f"❌ Tool execution failed after {execution_time:.2f}s: {e}", exc_info=True)
-                                result = {"error": str(e)}
-
-                            steps_taken.append({
-                                "tool": tool_name,
-                                "arguments": arguments,
-                                "result": result,
-                                "execution_time": execution_time
-                            })
-
-                            # Store evidence
-                            accumulated_evidence[tool_name].append(result)
-
-                            # Add function result to conversation
-                            input_list.append({
-                                "type": "function_call_output",
-                                "call_id": item.call_id,
-                                "output": json.dumps(result)
-                            })
-
-                        logger.info(f"{'='*60}\n")
-                    elif hasattr(item, 'type') and item.type == "message":
-                        for content_item in getattr(item, "content", []) or []:
-                            if isinstance(content_item, dict) and content_item.get("type") == "output_text":
-                                assistant_text = content_item.get("text")
-                            elif hasattr(content_item, "type") and getattr(content_item, "type") == "output_text":
-                                assistant_text = getattr(content_item, "text", None)
-
-                # Check if we should exit the outer loop
-                # If the last output item processed was answer_with_evidence, we're done
-                if has_function_call:
-                    # Check if any function call was answer_with_evidence
+                    # Iterate through output items to find function calls
+                    # response.output is a list of items (Message, FunctionCall, etc.)
                     for item in response.output:
                         if hasattr(item, 'type') and item.type == "function_call":
-                            if item.name == "answer_with_evidence":
-                                logger.info("🏁 Exiting orchestrator loop - ready to synthesize")
+                            has_function_call = True
+                            tool_name = item.name
+                            arguments = json.loads(item.arguments)
+
+                            logger.info(f"\n{'='*60}")
+                            logger.info(f"🔧 TOOL CALL: {tool_name}")
+                            logger.info(f"📥 Arguments: {json.dumps(arguments, indent=2)}")
+
+                            # Check if ready to answer
+                            if tool_name == "answer_with_evidence":
+                                logger.info("✅ Model indicated ready to synthesize answer")
+                                # Add dummy output to satisfy API requirements
+                                input_list.append({
+                                    "type": "function_call_output",
+                                    "call_id": item.call_id,
+                                    "output": json.dumps({"ready": True})
+                                })
+                                logger.info(f"{'='*60}\n")
+                                # Break immediately - we're done gathering evidence
                                 break
-                    else:
-                        # No answer_with_evidence found, continue
-                        continue
-                    # If we didn't continue, we break the outer loop
+
+                            if tool_name in self.executors:
+                                # Execute tool
+                                start_time = time.time()
+                                try:
+                                    result = self.executors[tool_name](**arguments)
+                                    execution_time = time.time() - start_time
+
+                                    # Log success with result summary
+                                    logger.info(f"✅ Tool executed successfully in {execution_time:.2f}s")
+                                    logger.info(f"📤 Result summary: {self._summarize_result(tool_name, result)}")
+                                    logger.info(
+                                        "📦 Tool output (chars=%s): %s",
+                                        len(json.dumps(result, ensure_ascii=True)),
+                                        json.dumps(result, ensure_ascii=True)[:8000] + "...[truncated]" if len(json.dumps(result, ensure_ascii=True)) > 8000 else json.dumps(result, ensure_ascii=True)
+                                    )
+
+                                except Exception as e:
+                                    execution_time = time.time() - start_time
+                                    logger.error(f"❌ Tool execution failed after {execution_time:.2f}s: {e}", exc_info=True)
+                                    result = {"error": str(e)}
+
+                                steps_taken.append({
+                                    "tool": tool_name,
+                                    "arguments": arguments,
+                                    "result": result,
+                                    "execution_time": execution_time
+                                })
+
+                                # Store evidence
+                                accumulated_evidence[tool_name].append(result)
+
+                                # Add function result to conversation
+                                input_list.append({
+                                    "type": "function_call_output",
+                                    "call_id": item.call_id,
+                                    "output": json.dumps(result)
+                                })
+
+                            logger.info(f"{'='*60}\n")
+                        elif hasattr(item, 'type') and item.type == "message":
+                            for content_item in getattr(item, "content", []) or []:
+                                if isinstance(content_item, dict) and content_item.get("type") == "output_text":
+                                    assistant_text = content_item.get("text")
+                                elif hasattr(content_item, "type") and getattr(content_item, "type") == "output_text":
+                                    assistant_text = getattr(content_item, "text", None)
+
+                    # Check if we should exit the outer loop
+                    # If the last output item processed was answer_with_evidence, we're done
+                    if has_function_call:
+                        # Check if any function call was answer_with_evidence
+                        for item in response.output:
+                            if hasattr(item, 'type') and item.type == "function_call":
+                                if item.name == "answer_with_evidence":
+                                    logger.info("🏁 Exiting orchestrator loop - ready to synthesize")
+                                    break
+                        else:
+                            # No answer_with_evidence found, continue
+                            continue
+                        # If we didn't continue, we break the outer loop
+                        break
+
+                    # If model didn't call any function, it might be confused or trying to talk
+                    # In responses API, if it returns text message, it's also in output
+                    if not has_function_call:
+                        if assistant_text:
+                            logger.info("No function call; returning assistant clarification.")
+                            return {
+                                "answer": assistant_text,
+                                "evidence": [],
+                                "sources": [],
+                                "steps": steps_taken,
+                                "input_list": input_list,
+                                "accumulated_evidence": accumulated_evidence
+                            }
+                        logger.info("No function call in response, stopping.")
+                        break
+
+                except Exception as e:
+                    logger.error(f"Error in multi-step loop: {e}", exc_info=True)
                     break
 
-                # If model didn't call any function, it might be confused or trying to talk
-                # In responses API, if it returns text message, it's also in output
-                if not has_function_call:
-                    if assistant_text:
-                        logger.info("No function call; returning assistant clarification.")
-                        return {
-                            "answer": assistant_text,
-                            "evidence": [],
-                            "sources": [],
-                            "steps": steps_taken,
-                            "input_list": input_list,
-                            "accumulated_evidence": accumulated_evidence
-                        }
-                    logger.info("No function call in response, stopping.")
-                    break
+            # Synthesize final answer using rag_qa.py
+            logger.info(f"\n{'='*60}")
+            logger.info(f"🔄 SYNTHESIZING FINAL ANSWER")
+            logger.info(f"   Tools used: {[step['tool'] for step in steps_taken]}")
+
+            # Log accumulation summary
+            for tool_name, results in accumulated_evidence.items():
+                total_calls = len(results)
+                successful_calls = sum(1 for r in results if "error" not in r)
+                logger.info(f"   {tool_name}: {successful_calls}/{total_calls} successful calls")
+
+            logger.info(f"{'='*60}\n")
+            
+            # Format evidence for rag_qa.answer_question
+            formatted_evidence = self._format_evidence_for_answer(accumulated_evidence)
+            
+            # We also want to include the question in the formatted evidence context somehow
+            # or rely on rag_qa to use the original question.
+            
+            # Using lazy import to avoid circular dependency if any
+            from rag.rag_qa import answer_question
+
+            try:
+                final_result = answer_question(
+                    query_results=formatted_evidence,
+                    original_question=question,
+                    sql_query=None,
+                    model=self.model
+                )
+
+                result = {
+                    "answer": final_result["answer"],
+                    "evidence": final_result["evidence"],
+                    "sources": final_result["sources"],
+                    "steps": steps_taken,
+                    "row_count": formatted_evidence.get("row_count", 0),
+                    # Include conversation state for storage
+                    "input_list": input_list,
+                    "accumulated_evidence": dict(accumulated_evidence)
+                }
+
+                logger.info(f"\n{'#'*60}")
+                logger.info(f"✅ MULTI-STEP QUERY COMPLETED SUCCESSFULLY")
+                logger.info(f"   Steps taken: {len(steps_taken)}")
+                logger.info(f"   Answer length: {len(result['answer'])} chars")
+                logger.info(f"   Sources: {len(result['sources'])}")
+                logger.info(f"   Final Answer: {result['answer'][:500]}..." if len(result['answer']) > 500 else f"   Final Answer: {result['answer']}")
+                logger.info(f"{'#'*60}\n\n")
+
+                return result
 
             except Exception as e:
-                logger.error(f"Error in multi-step loop: {e}", exc_info=True)
-                break
+                logger.error(f"\n{'#'*60}")
+                logger.error(f"❌ MULTI-STEP QUERY FAILED")
+                logger.error(f"   Error: {e}")
+                logger.error(f"   Steps completed: {len(steps_taken)}")
+                logger.error(f"{'#'*60}\n\n", exc_info=True)
 
-        # Synthesize final answer using rag_qa.py
-        logger.info(f"\n{'='*60}")
-        logger.info(f"🔄 SYNTHESIZING FINAL ANSWER")
-        logger.info(f"   Tools used: {[step['tool'] for step in steps_taken]}")
-
-        # Log accumulation summary
-        for tool_name, results in accumulated_evidence.items():
-            total_calls = len(results)
-            successful_calls = sum(1 for r in results if "error" not in r)
-            logger.info(f"   {tool_name}: {successful_calls}/{total_calls} successful calls")
-
-        logger.info(f"{'='*60}\n")
-        
-        # Format evidence for rag_qa.answer_question
-        formatted_evidence = self._format_evidence_for_answer(accumulated_evidence)
-        
-        # We also want to include the question in the formatted evidence context somehow
-        # or rely on rag_qa to use the original question.
-        
-        # Using lazy import to avoid circular dependency if any
-        from rag.rag_qa import answer_question
-
-        try:
-            final_result = answer_question(
-                query_results=formatted_evidence,
-                original_question=question,
-                sql_query=None,
-                model=self.model
-            )
-
-            result = {
-                "answer": final_result["answer"],
-                "evidence": final_result["evidence"],
-                "sources": final_result["sources"],
-                "steps": steps_taken,
-                "row_count": formatted_evidence.get("row_count", 0),
-                # Include conversation state for storage
-                "input_list": input_list,
-                "accumulated_evidence": dict(accumulated_evidence)
-            }
-
-            logger.info(f"\n{'#'*60}")
-            logger.info(f"✅ MULTI-STEP QUERY COMPLETED SUCCESSFULLY")
-            logger.info(f"   Steps taken: {len(steps_taken)}")
-            logger.info(f"   Answer length: {len(result['answer'])} chars")
-            logger.info(f"   Sources: {len(result['sources'])}")
-            logger.info(f"{'#'*60}\n\n")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"\n{'#'*60}")
-            logger.error(f"❌ MULTI-STEP QUERY FAILED")
-            logger.error(f"   Error: {e}")
-            logger.error(f"   Steps completed: {len(steps_taken)}")
-            logger.error(f"{'#'*60}\n\n", exc_info=True)
-
-            return {
-                "answer": "I gathered some information but failed to synthesize a final answer.",
-                "evidence": [],
-                "sources": [],
-                "steps": steps_taken,
-                "error": str(e)
-            }
+                return {
+                    "answer": "I gathered some information but failed to synthesize a final answer.",
+                    "evidence": [],
+                    "sources": [],
+                    "steps": steps_taken,
+                    "error": str(e)
+                }
+        finally:
+            # Clean up handler to avoid memory leaks or duplicate logging
+            file_handler.close()
+            logger.removeHandler(file_handler)
 
     def _summarize_result(self, tool_name: str, result: Dict[str, Any]) -> str:
         """Create a concise summary of tool result for logging."""
@@ -388,6 +410,12 @@ class MultiStepOrchestrator:
         elif tool_name == "get_utterances":
             count = result.get("count", 0)
             return f"Found {count} utterances"
+
+        elif tool_name == "get_full_text_context":
+            d_count = len(result.get("drafts", []))
+            m_count = len(result.get("meetings", []))
+            r_count = len(result.get("committee_reports", []))
+            return f"Context for {result.get('symbol')}: {d_count} drafts, {r_count} reports, {m_count} meetings"
 
         else:
             # Generic summary
@@ -429,6 +457,59 @@ class MultiStepOrchestrator:
                             "actor_name": country, # rag_qa looks for 'name', 'actor_name', 'speaker_affiliation', 'country'
                             "vote_context": "plenary" # assumption for now, or could come from tool
                         })
+
+        # Add full text context evidence
+        if "get_full_text_context" in evidence:
+            for ctx in evidence["get_full_text_context"]:
+                if "error" in ctx:
+                    continue
+                
+                # Add resolution
+                if ctx.get("resolution"):
+                    res = ctx["resolution"]
+                    rows.append({
+                        "symbol": res.get("symbol"),
+                        "doc_type": "resolution",
+                        "text": res.get("text"),
+                        "title": res.get("title"),
+                        "date": res.get("date")
+                    })
+                
+                # Add drafts
+                for doc in ctx.get("drafts", []):
+                    rows.append({
+                        "symbol": doc.get("symbol"),
+                        "doc_type": "draft",
+                        "text": doc.get("text"),
+                        "title": doc.get("title"),
+                        "date": doc.get("date"),
+                        "relationship_type": "draft_of",
+                        "target_symbol": ctx.get("symbol")
+                    })
+                
+                # Add reports
+                for doc in ctx.get("committee_reports", []):
+                    rows.append({
+                        "symbol": doc.get("symbol"),
+                        "doc_type": "committee_report",
+                        "text": doc.get("text"),
+                        "title": doc.get("title"),
+                        "date": doc.get("date"),
+                        "relationship_type": "committee_report_for",
+                        "target_symbol": ctx.get("symbol")
+                    })
+                
+                # Add meetings
+                for doc in ctx.get("meetings", []):
+                    rows.append({
+                        "symbol": doc.get("symbol"),
+                        "doc_type": "meeting",
+                        "text": doc.get("text"), # Full text!
+                        "title": doc.get("title"),
+                        "date": doc.get("date"),
+                        "relationship_type": "meeting_record_for",
+                        "target_symbol": ctx.get("symbol")
+                    })
 
         # Add utterance evidence
         if "get_utterances" in evidence:

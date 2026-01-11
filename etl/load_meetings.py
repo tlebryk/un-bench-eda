@@ -320,15 +320,33 @@ class MeetingLoader(BaseLoader):
         return linked_documents
 
     def _resolve_resolution_symbol(self, doc_symbol: str) -> Optional[str]:
+        """
+        Resolve document symbols to their canonical resolution form.
+
+        IMPORTANT: A/78/XXX documents are committee reports/secretariat notes,
+        NOT resolution references. Only resolve explicit A/RES/ patterns.
+
+        Examples:
+        - A/RES/78/240 → None (already in canonical form)
+        - A/78/240 → None (committee report, do NOT convert to A/RES/78/240)
+        - A/78/282 → None (committee report, do NOT convert to A/RES/78/282)
+
+        This prevents spurious cross-committee links where:
+        - A/78/240 = Secretariat note about torture fund (C.3)
+        - A/RES/78/240 = Nuclear weapons resolution (C.1)
+        """
         if not doc_symbol:
             return None
         if doc_symbol.startswith("A/RES/"):
             return None
+
+        # DON'T auto-resolve A/78/XXX patterns - these are committee reports,
+        # not resolution references. The previous behavior created spurious links.
         match = re.fullmatch(r"A/(\d+)/(\d+)", doc_symbol)
-        if not match:
+        if match:
             return None
-        session, number = match.groups()
-        return f"A/RES/{session}/{number}"
+
+        return None
 
     def _backfill_meeting_relationships(self, meeting_doc: Document):
         """

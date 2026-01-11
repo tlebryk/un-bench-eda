@@ -37,8 +37,12 @@ This creates the SQLAlchemy models defined in `db/models.py`:
 - `document_relationships` - Links between documents
 - `actors` - Countries, observers, UN officials
 - `votes` - Committee + plenary roll-call records
+- `vote_events` - Specific voting events (amendments, procedural motions)
 - `utterances` - Parsed statements from meetings
 - `utterance_documents` - Junction table linking utterances to the documents they mention
+- `subjects` - Controlled vocabulary of document topics
+- `document_subjects` - Many-to-many link between documents and subjects
+- `sponsorships` - Tracks which actors sponsored documents
 
 ### 4. Load Data
 
@@ -170,13 +174,14 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 
 ## Schema Snapshot (January 2026)
 
-`db/models.py` is the source of truth for the database. `scripts/setup_db.py` builds the six tables listed below, and the schema mirrors the structures used by the RAG + multi-step agents.
+`db/models.py` is the source of truth for the database. `scripts/setup_db.py` builds the ten tables listed below, and the schema mirrors the structures used by the RAG + multi-step agents.
 
 ### Table overview
 - **documents** – canonical record for every artifact (resolutions, drafts, committee reports, meetings, agenda, decisions). Stores normalized fields plus a JSONB `doc_metadata` blob for source-specific attributes.
 - **document_relationships** – directional edges such as `draft_of`, `committee_report_for`, `meeting_record_for`, `agenda_item_for` that power genealogy traversal.
 - **actors** – normalized participants (countries, observers, UN officials) so we can join votes + utterances.
 - **votes** – roll-call data from committee/plenary stages; keyed to both `documents` and `actors`.
+- **vote_events** – specific voting events within meetings (amendments, oral amendments, procedural motions); links `votes` to the exact context and utterance where the vote was announced.
 - **utterances** – parsed statements from plenary meetings and committee summary records with speaker metadata.
 - **utterance_documents** – many-to-many helper that ties utterances to the specific drafts/resolutions they reference (`reference_type='voting_on'`, `mentioned`, etc.).
 - **subjects** – Controlled vocabulary of document topics.
@@ -184,7 +189,7 @@ uv run text_to_sql.py "Show me all resolutions where USA voted against"
 - **sponsorships** – Tracks which actors sponsored a document (initial vs. additional).
 
 ### Current implementation status
-- **Fully implemented:** the six tables above, including cascading relationships and helper methods exposed in `db/models.py`.
+- **Fully implemented:** the ten tables above, including cascading relationships and helper methods exposed in `db/models.py`.
 - **Partially implemented:**
   - `documents` is missing a few optional columns from the earlier design (`committee`, `record_id`, `action_note`, `body_text_vector`, `updated_at`, `source_file`), but the JSONB metadata keeps the data accessible.
   - `actors` only stores `name` + `actor_type`; alias handling / normalized names are still TODO.
@@ -278,10 +283,24 @@ Use these patterns in RAG, UI, or trajectory QA to pull precise statements (e.g.
 | Column | Type | Description |
 |--------|------|-------------|
 | id | integer | Primary key |
-| document_id | integer | Foreign key to documents |
+| document_id | integer | Foreign key to documents (nullable) |
 | actor_id | integer | Foreign key to actors |
+| vote_event_id | integer | Foreign key to vote_events (nullable) |
 | vote_type | string | in_favour, against, abstaining |
 | vote_context | string | plenary, committee |
+| created_at | timestamp | Creation timestamp |
+
+### vote_events
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| meeting_id | integer | Foreign key to documents (meeting where vote occurred) |
+| utterance_id | integer | Foreign key to utterances (announcement of vote) |
+| target_document_id | integer | Foreign key to documents (draft/resolution being voted on, nullable) |
+| event_type | string | vote_on_amendment, vote_on_oral_amendment, motion_for_division, adoption |
+| description | text | Description of the voting event |
+| result | string | adopted, rejected, etc. |
 | created_at | timestamp | Creation timestamp |
 
 ### document_relationships

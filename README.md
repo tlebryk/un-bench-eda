@@ -16,6 +16,7 @@ For the full research context, see [project.md](project.md).
 - [docs/etl.md](docs/etl.md) – End-to-end ETL runbook (fetch → parse → load, QA, incident notes)
 - [docs/README_DATABASE.md](docs/README_DATABASE.md) – Schema details, meeting utterances storage, genealogy traversal
 - [docs/gym.md](docs/gym.md) & [docs/training_eval.md](docs/training_eval.md) – Gym internals, evaluation, world-model/IRL experiments
+- [docs/ui.md](docs/ui.md) – FastAPI UI routes, feature flags, and development workflow
 
 ## Dependency Management
 
@@ -374,6 +375,8 @@ data/
 
 # UI
 
+Full FastAPI route + feature flag reference lives in [docs/ui.md](docs/ui.md). Use that doc for endpoint behavior when extending the UI; high-level features are summarized below, and RAG internals remain in [docs/rag.md](docs/rag.md).
+
 ## Features
 
 The web UI provides an interactive chat interface for querying UN documents:
@@ -396,8 +399,6 @@ The web UI provides an interactive chat interface for querying UN documents:
   - Input at bottom, messages grow upward
   - Auto-continue sessions with "New Chat" button
   - Real-time streaming responses
-
-For technical details, see [docs/rag.md](docs/rag.md).
 
 ## Local Development
 

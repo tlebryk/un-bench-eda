@@ -188,6 +188,9 @@ def download_metadata_html(json_file: str,
         elif 'committee-report' in json_filename or 'committee_reports' in json_filename:
             output_path = base_data_dir / "documents" / "html" / "committee-reports"
             print(f"Auto-detected: Saving committee-reports HTML to {output_path}")
+        elif 'summary_records' in json_filename or 'summary-records' in json_filename:
+            output_path = base_data_dir / "documents" / "html" / "committee-summary-records"
+            print(f"Auto-detected: Saving committee-summary-records HTML to {output_path}")
         elif 'agenda' in json_filename:
             output_path = base_data_dir / "documents" / "html" / "agenda"
             print(f"Auto-detected: Saving agenda HTML to {output_path}")
