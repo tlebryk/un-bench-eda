@@ -13,6 +13,7 @@ from rag.multistep.tools import (
     get_vote_events_tool, execute_get_vote_events,
     get_utterances_tool, execute_get_utterances,
     get_related_utterances_tool, execute_get_related_utterances,
+    get_chain_utterances_tool, execute_get_chain_utterances,
     get_document_details_tool, execute_get_document_details,
     execute_sql_query_tool, execute_execute_sql_query,
     answer_with_evidence_tool
@@ -43,12 +44,13 @@ class MultiStepOrchestrator:
         # Tool definitions
         self.tools = [
             execute_sql_query_tool(),
-            get_related_documents_tool(),
+            # get_related_documents_tool(),
             get_document_details_tool(),
             get_votes_tool(),
             get_vote_events_tool(),
-            get_utterances_tool(),
-            get_related_utterances_tool(),
+            # get_utterances_tool(),
+            # get_related_utterances_tool(),
+            get_chain_utterances_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -61,6 +63,7 @@ class MultiStepOrchestrator:
             "get_vote_events": execute_get_vote_events,
             "get_utterances": execute_get_utterances,
             "get_related_utterances": execute_get_related_utterances,
+            "get_chain_utterances": execute_get_chain_utterances,
         }
 
     @staticmethod

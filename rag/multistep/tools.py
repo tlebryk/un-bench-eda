@@ -680,6 +680,198 @@ def execute_get_related_utterances(
         session.close()
 
 
+# Tool 5b: Get Chain Utterances (meetings + utterances for a doc chain)
+
+def get_chain_utterances_tool() -> Dict[str, Any]:
+    """Get meetings and utterances for a document chain."""
+    return {
+        "type": "function",
+        "name": "get_chain_utterances",
+        "description": "Traverse a document chain (resolution/drafts/reports) and return linked meetings plus utterances that reference any doc in the chain. Falls back to utterance-linked meetings if meeting_record_for edges are missing.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Seed document symbol, e.g., 'A/RES/78/156'"
+                },
+                "speaker_countries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter utterances by speaker affiliation (optional)"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Max traversal depth through document_relationships (default 4)"
+                },
+                "include_full_text": {
+                    "type": "boolean",
+                    "description": "Return full utterance text (default false)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max utterances to return (default 100)"
+                }
+            },
+            "required": ["symbol"]
+        }
+    }
+
+
+def execute_get_chain_utterances(
+    symbol: str,
+    speaker_countries: Optional[List[str]] = None,
+    max_depth: int = 4,
+    include_full_text: bool = False,
+    limit: int = 100
+) -> Dict[str, Any]:
+    """
+    Traverse a document chain and fetch meetings + utterances that reference the chain docs.
+    Falls back to meetings observed via utterance_documents if meeting_record_for edges are missing.
+    """
+    from db.config import get_session
+
+    session = get_session()
+    try:
+        logger.info(
+            "Getting chain meetings + utterances for %s depth=%s speakers=%s limit=%s",
+            symbol, max_depth, speaker_countries, limit
+        )
+
+        query = """
+            WITH RECURSIVE chain AS (
+                SELECT d.id, d.symbol, d.doc_type, 0 AS depth
+                FROM documents d WHERE d.symbol = :symbol
+                UNION ALL
+                SELECT other.id, other.symbol, other.doc_type, c.depth + 1
+                FROM chain c
+                JOIN document_relationships dr
+                  ON dr.source_id = c.id OR dr.target_id = c.id
+                JOIN documents other
+                  ON other.id = CASE WHEN dr.source_id = c.id THEN dr.target_id ELSE dr.source_id END
+                WHERE c.depth < :max_depth
+                  AND other.doc_type NOT IN ('meeting','committee_meeting')
+            ),
+            chain_ids AS (SELECT DISTINCT id FROM chain),
+            rel_meetings AS (
+                SELECT DISTINCT m.id, m.symbol, m.date
+                FROM chain_ids c
+                JOIN document_relationships dr
+                  ON (dr.source_id = c.id OR dr.target_id = c.id)
+                 AND dr.relationship_type = 'meeting_record_for'
+                JOIN documents m
+                  ON m.id = CASE WHEN dr.source_id = c.id THEN dr.target_id ELSE dr.source_id END
+                WHERE m.doc_type IN ('meeting','committee_meeting')
+            ),
+            utt_meetings AS (
+                SELECT DISTINCT m.id, m.symbol, m.date
+                FROM utterances u
+                JOIN utterance_documents ud ON ud.utterance_id = u.id
+                JOIN documents m ON m.id = u.meeting_id
+                WHERE ud.document_id IN (SELECT id FROM chain_ids)
+            ),
+            meetings AS (
+                SELECT * FROM rel_meetings
+                UNION
+                SELECT * FROM utt_meetings
+            )
+            SELECT
+                u.id AS utterance_id,
+                u.speaker_name,
+                u.speaker_affiliation,
+                u.agenda_item_number,
+                u.text,
+                u.position_in_meeting,
+                m.symbol AS meeting_symbol,
+                ref.symbol AS referenced_symbol,
+                ud.reference_type
+            FROM utterances u
+            JOIN meetings m ON m.id = u.meeting_id
+            LEFT JOIN utterance_documents ud ON ud.utterance_id = u.id
+            LEFT JOIN documents ref ON ref.id = ud.document_id
+            WHERE (ud.document_id IS NULL OR ud.document_id IN (SELECT id FROM chain_ids))
+        """
+
+        params: Dict[str, Any] = {
+            "symbol": symbol,
+            "max_depth": max_depth,
+            "limit": limit
+        }
+
+        if speaker_countries:
+            speaker_filters = " OR ".join(
+                f"u.speaker_affiliation ILIKE :speaker_{i}"
+                for i in range(len(speaker_countries))
+            )
+            query += f" AND ({speaker_filters})"
+            for i, country in enumerate(speaker_countries):
+                params[f"speaker_{i}"] = f"%{country}%"
+
+        query += " ORDER BY m.date, u.position_in_meeting LIMIT :limit"
+
+        results = session.execute(text(query), params).fetchall()
+
+        utterances = []
+        referenced_symbols = set()
+        meetings = set()
+        for row in results:
+            if row[7]:
+                referenced_symbols.add(row[7])
+            meetings.add(row[6])
+            payload = {
+                "utterance_id": row[0],
+                "speaker_name": row[1],
+                "speaker_affiliation": row[2],
+                "agenda_item": row[3],
+                "text": row[4] if include_full_text else (row[4][:500] if row[4] else ""),
+                "position_in_meeting": row[5],
+                "meeting_symbol": row[6],
+                "referenced_symbol": row[7],
+                "reference_type": row[8]
+            }
+            utterances.append(payload)
+
+        # Chain docs for context
+        chain_rows = session.execute(text("""
+            WITH RECURSIVE chain AS (
+                SELECT d.id, d.symbol, d.doc_type, 0 AS depth
+                FROM documents d WHERE d.symbol = :symbol
+                UNION ALL
+                SELECT other.id, other.symbol, other.doc_type, c.depth + 1
+                FROM chain c
+                JOIN document_relationships dr
+                  ON dr.source_id = c.id OR dr.target_id = c.id
+                JOIN documents other
+                  ON other.id = CASE WHEN dr.source_id = c.id THEN dr.target_id ELSE dr.source_id END
+                WHERE c.depth < :max_depth
+                  AND other.doc_type NOT IN ('meeting','committee_meeting')
+            )
+            SELECT DISTINCT id, symbol, doc_type, depth FROM chain ORDER BY depth, symbol
+        """), {"symbol": symbol, "max_depth": max_depth}).fetchall()
+        chain_docs = [
+            {"id": r[0], "symbol": r[1], "doc_type": r[2], "depth": r[3]}
+            for r in chain_rows
+        ]
+
+        return {
+            "utterances": utterances,
+            "count": len(utterances),
+            "truncated": len(utterances) >= limit,
+            "referenced_symbols": sorted(referenced_symbols),
+            "meetings": sorted(meetings),
+            "chain": chain_docs
+        }
+    except Exception as e:
+        logger.error("Error getting chain utterances: %s", e, exc_info=True)
+        return {
+            "utterances": [],
+            "count": 0,
+            "error": str(e)
+        }
+    finally:
+        session.close()
+
+
 # Tool 6: Get Document Details
 
 def get_document_details_tool() -> Dict[str, Any]:
