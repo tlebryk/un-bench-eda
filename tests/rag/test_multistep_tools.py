@@ -87,6 +87,31 @@ def test_execute_get_utterances_no_country_filter():
     assert "count" in result
 
 
+@pytest.mark.integration
+def test_execute_get_related_utterances_filters_referenced_documents():
+    """Ensure the related utterance tool keeps context to the requested symbol."""
+    from rag.multistep.tools import execute_get_related_utterances
+
+    symbol = "A/RES/78/190"
+    result = execute_get_related_utterances(symbol)
+
+    assert result["count"] > 0
+    assert result["referenced_symbols"] == [symbol]
+    assert all(utt["referenced_symbol"] == symbol for utt in result["utterances"])
+
+
+@pytest.mark.integration
+def test_execute_get_related_utterances_country_filter_matches_speaker_name():
+    """Speaker country filter should match on either affiliation or speaker name."""
+    from rag.multistep.tools import execute_get_related_utterances
+
+    symbol = "A/RES/78/190"
+    result = execute_get_related_utterances(symbol, speaker_countries=["China"], limit=25)
+
+    assert result["count"] > 0
+    assert any("China" in (utt["speaker_name"] or "") for utt in result["utterances"])
+
+
 def test_tool_definitions():
     """Test that tool definitions have correct structure."""
     from rag.multistep.tools import (

@@ -48,11 +48,11 @@ class MultiStepOrchestrator:
             # get_related_documents_tool(),
             get_document_details_tool(),
             get_votes_tool(),
-            get_vote_events_tool(),
+            # get_vote_events_tool(),
             # get_utterances_tool(),
-            # get_related_utterances_tool(),
+            get_related_utterances_tool(),
             # get_chain_utterances_tool(),
-            get_full_text_context_tool(),
+            # get_full_text_context_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -62,11 +62,11 @@ class MultiStepOrchestrator:
             # "get_related_documents": execute_get_related_documents,
             "get_document_details": execute_get_document_details,
             "get_votes": execute_get_votes,
-            "get_vote_events": execute_get_vote_events,
+            # "get_vote_events": execute_get_vote_events,
             # "get_utterances": execute_get_utterances,
-            # "get_related_utterances": execute_get_related_utterances,
+            "get_related_utterances": execute_get_related_utterances,
             # "get_chain_utterances": execute_get_chain_utterances,
-            "get_full_text_context": execute_get_full_text_context,
+            # "get_full_text_context": execute_get_full_text_context,
         }
 
     @staticmethod
@@ -411,6 +411,11 @@ class MultiStepOrchestrator:
             count = result.get("count", 0)
             return f"Found {count} utterances"
 
+        elif tool_name == "get_related_utterances":
+            count = result.get("count", 0)
+            referenced = ", ".join(result.get("referenced_symbols", [])) or "documents"
+            return f"Found {count} utterances referencing {referenced}"
+
         elif tool_name == "get_full_text_context":
             d_count = len(result.get("drafts", []))
             m_count = len(result.get("meetings", []))
@@ -522,12 +527,34 @@ class MultiStepOrchestrator:
 
                 # utterances structure: {"utterances": [{"speaker_name": ..., "text": ...}, ...]}
                 for utt in utt_data.get("utterances", []):
+                    meeting_symbol = utt.get("meeting_symbol")
+                    if not meeting_symbol and isinstance(utt.get("meeting"), list) and utt.get("meeting"):
+                        meeting_symbol = utt.get("meeting")[0]
                     rows.append({
                         "text": utt.get("text"),
                         "speaker_affiliation": utt.get("speaker_affiliation"),
                         "speaker_name": utt.get("speaker_name"),
-                        "meeting_symbol": utt.get("meeting", [])[0] if isinstance(utt.get("meeting"), list) and utt.get("meeting") else None,
+                        "meeting_symbol": meeting_symbol,
                         "agenda_item_number": utt.get("agenda_item")
+                    })
+
+        # Add related utterance evidence
+        if "get_related_utterances" in evidence:
+            for utt_data in evidence["get_related_utterances"]:
+                if "error" in utt_data:
+                    logger.warning(f"Skipping related utterances result with error: {utt_data['error']}")
+                    continue
+
+                for utt in utt_data.get("utterances", []):
+                    rows.append({
+                        "symbol": utt.get("referenced_symbol"),
+                        "doc_type": "utterance",
+                        "text": utt.get("text"),
+                        "speaker_affiliation": utt.get("speaker_affiliation"),
+                        "speaker_name": utt.get("speaker_name"),
+                        "meeting_symbol": utt.get("meeting_symbol"),
+                        "agenda_item_number": utt.get("agenda_item"),
+                        "reference_type": utt.get("reference_type")
                     })
 
         # Add related documents metadata

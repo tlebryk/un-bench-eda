@@ -176,3 +176,18 @@ system_prompt: |
     → SELECT ve.event_type, ve.description, COUNT(v.id) as vote_count FROM vote_events ve LEFT JOIN votes v ON v.vote_event_id = ve.id JOIN documents m ON m.id = ve.meeting_id WHERE m.symbol = 'A/78/PV.107' AND ve.event_type = 'vote_on_amendment' GROUP BY ve.id, ve.event_type, ve.description;
 
   The database contains UN General Assembly documents, votes, vote events (including procedural votes on amendments and motions), actors (countries), and meeting utterances.
+
+common_patterns:
+  - name: find_divergent_votes
+    description: "Find resolutions where two countries voted differently"
+    example: |
+      SELECT DISTINCT d.symbol, d.title
+      FROM documents d
+      JOIN votes v1 ON v1.document_id = d.id
+      JOIN actors a1 ON a1.id = v1.actor_id
+      JOIN votes v2 ON v2.document_id = d.id
+      JOIN actors a2 ON a2.id = v2.actor_id
+      WHERE a1.name ILIKE '%china%'
+        AND v1.vote_type = 'in_favour'
+        AND a2.name ILIKE '%united states%'
+        AND v2.vote_type = 'against';

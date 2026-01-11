@@ -508,11 +508,11 @@ def execute_get_utterances(
 # Tool 5: Get Related Utterances
 
 def get_related_utterances_tool() -> Dict[str, Any]:
-    """Get utterances related to a document chain."""
+    """Get utterances directly tied to one or more UN documents."""
     return {
         "type": "function",
         "name": "get_related_utterances",
-        "description": "Get utterances tied to a document and its related chain (drafts, resolutions, agenda items, committee reports). Filters utterances to those that explicitly reference documents in the chain; meeting links are used only for locating utterances.",
+        "description": "Get utterances tied to a specific resolution/draft symbol (no recursive traversal). Filters utterances to those that explicitly reference the requested documents via utterance_documents.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -520,9 +520,10 @@ def get_related_utterances_tool() -> Dict[str, Any]:
                     "type": "string",
                     "description": "Document symbol to seed the chain (e.g., 'A/RES/78/220')"
                 },
-                "max_depth": {
-                    "type": "integer",
-                    "description": "Max traversal depth through document_relationships (default 3)"
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of document symbols to include in the query (use when you already know multiple symbols)."
                 },
                 "reference_types": {
                     "type": "array",
@@ -542,15 +543,14 @@ def get_related_utterances_tool() -> Dict[str, Any]:
                     "type": "integer",
                     "description": "Max utterances to return (default 200)"
                 }
-            },
-            "required": ["symbol"]
+            }
         }
     }
 
 
 def execute_get_related_utterances(
-    symbol: str,
-    max_depth: int = 3,
+    symbol: Optional[str] = None,
+    symbols: Optional[List[str]] = None,
     reference_types: Optional[List[str]] = None,
     speaker_countries: Optional[List[str]] = None,
     include_full_text: bool = False,
@@ -560,8 +560,8 @@ def execute_get_related_utterances(
     Execute utterance query for a document chain.
 
     Args:
-        symbol: Seed document symbol
-        max_depth: Max traversal depth for related documents
+        symbol: Primary document symbol
+        symbols: Optional additional document symbols
         reference_types: Optional filter on utterance_documents.reference_type
         speaker_countries: Optional filter on speaker affiliations
         limit: Max utterances to return
@@ -571,37 +571,31 @@ def execute_get_related_utterances(
     """
     from db.config import get_session
 
+    document_symbols: List[str] = []
+    if symbols:
+        document_symbols.extend([s for s in symbols if s])
+    if symbol:
+        document_symbols.append(symbol)
+
+    # De-duplicate while preserving order of appearance
+    seen = set()
+    ordered_symbols: List[str] = []
+    for sym in document_symbols:
+        if sym not in seen:
+            ordered_symbols.append(sym)
+            seen.add(sym)
+
+    if not ordered_symbols:
+        raise ValueError("Must supply at least one document symbol")
+
     session = get_session()
     try:
         logger.info(
-            "Getting related utterances for %s depth=%s ref_types=%s speakers=%s limit=%s",
-            symbol, max_depth, reference_types, speaker_countries, limit
+            "Getting related utterances for symbols=%s ref_types=%s speakers=%s limit=%s",
+            ordered_symbols, reference_types, speaker_countries, limit
         )
 
         query = """
-            WITH RECURSIVE doc_chain AS (
-                SELECT id, symbol, doc_type, 0 AS depth
-                FROM documents
-                WHERE symbol = :symbol
-
-                UNION ALL
-
-                SELECT
-                    d.id,
-                    d.symbol,
-                    d.doc_type,
-                    dc.depth + 1
-                FROM doc_chain dc
-                JOIN document_relationships dr ON (
-                    dr.target_id = dc.id OR dr.source_id = dc.id
-                )
-                JOIN documents d ON (
-                    d.id = dr.source_id OR d.id = dr.target_id
-                )
-                WHERE dc.depth < :max_depth
-                  AND d.id != dc.id
-                  AND d.doc_type NOT IN ('meeting', 'committee_meeting')
-            )
             SELECT
                 u.id,
                 u.speaker_name,
@@ -616,7 +610,7 @@ def execute_get_related_utterances(
             JOIN utterance_documents ud ON ud.utterance_id = u.id
             JOIN documents d ON d.id = ud.document_id
             JOIN documents m ON m.id = u.meeting_id
-            WHERE d.id IN (SELECT id FROM doc_chain)
+            WHERE d.symbol = ANY(:symbols)
         """
 
         if reference_types:
@@ -624,15 +618,18 @@ def execute_get_related_utterances(
 
         if speaker_countries:
             speaker_filters = " OR ".join(
-                [f"u.speaker_affiliation ILIKE :speaker_{i}" for i in range(len(speaker_countries))]
+                [
+                    f"(u.speaker_affiliation ILIKE :speaker_{i} OR "
+                    f"u.speaker_name ILIKE :speaker_{i})"
+                    for i in range(len(speaker_countries))
+                ]
             )
             query += f" AND ({speaker_filters})"
 
-        query += " ORDER BY m.date, u.position_in_meeting LIMIT :limit"
+        query += " ORDER BY d.symbol, m.date, u.position_in_meeting LIMIT :limit"
 
         params = {
-            "symbol": symbol,
-            "max_depth": max_depth,
+            "symbols": ordered_symbols,
             "reference_types": reference_types,
             "limit": limit
         }
@@ -664,7 +661,7 @@ def execute_get_related_utterances(
 
         return {
             "utterances": utterances,
-            "referenced_symbols": sorted(referenced_symbols),
+            "referenced_symbols": [sym for sym in ordered_symbols if sym in referenced_symbols],
             "count": len(utterances),
             "truncated": len(utterances) >= limit
         }
@@ -1428,4 +1425,3 @@ def execute_get_full_text_context(symbol: str) -> Dict[str, Any]:
         }
     finally:
         session.close()
-
