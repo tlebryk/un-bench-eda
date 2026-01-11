@@ -5,13 +5,21 @@ from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 
+import os
+
+# Vector columns are opt-in: require both pgvector installed AND explicit env var
+# This prevents SQLAlchemy from querying columns that don't exist in the database
+_ENABLE_VECTOR_COLUMNS = os.getenv("ENABLE_VECTOR_COLUMNS", "").lower() == "true"
+
 try:
     from pgvector.sqlalchemy import Vector
     PGVECTOR_AVAILABLE = True
 except ImportError:
-    # Allow models to load without pgvector for basic operations
     Vector = None
     PGVECTOR_AVAILABLE = False
+
+# Only define vector columns if explicitly enabled AND pgvector is available
+_USE_VECTOR_COLUMNS = PGVECTOR_AVAILABLE and _ENABLE_VECTOR_COLUMNS
 
 Base = declarative_base()
 
@@ -29,7 +37,8 @@ class Document(Base):
     body_text = Column(Text)  # Full text of document (from PDF parsing - resolutions, drafts, etc.)
     doc_metadata = Column(JSONB)  # Full JSON for flexibility (renamed to avoid SQLAlchemy reserved word)
     # Vector embedding for semantic search (1536 dims = OpenAI text-embedding-3-small)
-    body_text_embedding = Column(Vector(1536)) if PGVECTOR_AVAILABLE else None
+    # Only included when ENABLE_VECTOR_COLUMNS=true AND migration has been run
+    body_text_embedding = Column(Vector(1536)) if _USE_VECTOR_COLUMNS else None
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -162,7 +171,8 @@ class Utterance(Base):
     # Metadata from parsing
     utterance_metadata = Column(JSONB)  # resolution_metadata, draft_resolution_mentions, etc.
     # Vector embedding for semantic search (1536 dims = OpenAI text-embedding-3-small)
-    text_embedding = Column(Vector(1536)) if PGVECTOR_AVAILABLE else None
+    # Only included when ENABLE_VECTOR_COLUMNS=true AND migration has been run
+    text_embedding = Column(Vector(1536)) if _USE_VECTOR_COLUMNS else None
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

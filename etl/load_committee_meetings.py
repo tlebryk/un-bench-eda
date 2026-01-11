@@ -163,6 +163,9 @@ class CommitteeMeetingLoader(MeetingLoader):
                     self._ensure_meeting_relationships(doc, linked_docs, relationship_targets)
                         # Committee SRs usually don't have recorded votes in utterances in the same format
                         # but we can try extracting if they do
-                        
+
+        # Backfill meeting relationships from any existing utterance links
+        self._backfill_meeting_relationships(doc)
+
         if utterances_extracted > 0:
             self.stats["loaded"] += 1

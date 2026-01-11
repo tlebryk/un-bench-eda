@@ -167,6 +167,9 @@ class MeetingLoader(BaseLoader):
                     if procedural_events:
                         votes_extracted += self._extract_procedural_events(utterance, procedural_events, doc)
 
+        # Backfill meeting relationships from already-linked utterance documents
+        self._backfill_meeting_relationships(doc)
+
         if utterances_extracted > 0 or votes_extracted > 0:
             self.stats["loaded"] += 1
             print(f"  {symbol}: Extracted {utterances_extracted} utterances, {votes_extracted} votes")
@@ -326,6 +329,44 @@ class MeetingLoader(BaseLoader):
             return None
         session, number = match.groups()
         return f"A/RES/{session}/{number}"
+
+    def _backfill_meeting_relationships(self, meeting_doc: Document):
+        """
+        Ensure meeting_record_for edges exist for any documents already linked via utterance_documents.
+        This catches cases where utterance links were created before the related resolution/draft was in the DB.
+        """
+        linked_doc_rows = (
+            self.session.query(UtteranceDocument.document_id)
+            .join(Utterance, Utterance.id == UtteranceDocument.utterance_id)
+            .filter(Utterance.meeting_id == meeting_doc.id)
+            .distinct()
+            .all()
+        )
+
+        seen_ids = set()
+        for (doc_id,) in linked_doc_rows:
+            if not doc_id or doc_id in seen_ids:
+                continue
+
+            doc = self.session.query(Document).get(doc_id)
+            if not doc or doc.doc_type not in {"resolution", "draft", "committee_report"}:
+                continue
+
+            existing = self.session.query(DocumentRelationship).filter_by(
+                source_id=meeting_doc.id,
+                target_id=doc.id,
+                relationship_type="meeting_record_for"
+            ).first()
+
+            if not existing:
+                rel = DocumentRelationship(
+                    source_id=meeting_doc.id,
+                    target_id=doc.id,
+                    relationship_type="meeting_record_for"
+                )
+                self.session.add(rel)
+
+            seen_ids.add(doc_id)
 
     def _ensure_meeting_relationships(self, meeting_doc: Document,
                                       linked_docs: List[Document],
