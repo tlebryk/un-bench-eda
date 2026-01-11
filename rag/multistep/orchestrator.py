@@ -77,6 +77,23 @@ class MultiStepOrchestrator:
                 payload.append(str(item))
         return json.dumps(payload, ensure_ascii=True)
 
+    @staticmethod
+    def _serialize_input_list(input_list: List[Dict[str, Any]], max_chars: int = 8000) -> str:
+        try:
+            raw = json.dumps(input_list, ensure_ascii=True)
+        except Exception:
+            raw = str(input_list)
+        if len(raw) > max_chars:
+            return raw[:max_chars] + "...[truncated]"
+        return raw
+
+    @staticmethod
+    def _estimate_input_chars(input_list: List[Dict[str, Any]]) -> int:
+        try:
+            return len(json.dumps(input_list, ensure_ascii=True))
+        except Exception:
+            return len(str(input_list))
+
     def answer_multistep(
         self,
         question: str,
@@ -139,6 +156,12 @@ class MultiStepOrchestrator:
                 # The offboarding doc explicitly says: Use client.responses.create() API (NOT chat.completions.create)
                 # and references sample_oai_function_call.py
                 
+                logger.info(
+                    "OAI input (chars=%s): %s",
+                    self._estimate_input_chars(input_list),
+                    self._serialize_input_list(input_list)
+                )
+
                 response = self.client.responses.create(
                     model=self.model,
                     tools=self.tools,
@@ -199,6 +222,11 @@ class MultiStepOrchestrator:
                                 # Log success with result summary
                                 logger.info(f"✅ Tool executed successfully in {execution_time:.2f}s")
                                 logger.info(f"📤 Result summary: {self._summarize_result(tool_name, result)}")
+                                logger.info(
+                                    "📦 Tool output (chars=%s): %s",
+                                    len(json.dumps(result, ensure_ascii=True)),
+                                    json.dumps(result, ensure_ascii=True)[:8000] + "...[truncated]" if len(json.dumps(result, ensure_ascii=True)) > 8000 else json.dumps(result, ensure_ascii=True)
+                                )
 
                             except Exception as e:
                                 execution_time = time.time() - start_time
@@ -411,7 +439,7 @@ class MultiStepOrchestrator:
                 # utterances structure: {"utterances": [{"speaker_name": ..., "text": ...}, ...]}
                 for utt in utt_data.get("utterances", []):
                     rows.append({
-                        "text": utt.get("full_text") or utt.get("text"),
+                        "text": utt.get("text"),
                         "speaker_affiliation": utt.get("speaker_affiliation"),
                         "speaker_name": utt.get("speaker_name"),
                         "meeting_symbol": utt.get("meeting", [])[0] if isinstance(utt.get("meeting"), list) and utt.get("meeting") else None,

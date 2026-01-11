@@ -5,6 +5,14 @@ from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    # Allow models to load without pgvector for basic operations
+    Vector = None
+    PGVECTOR_AVAILABLE = False
+
 Base = declarative_base()
 
 
@@ -20,6 +28,8 @@ class Document(Base):
     date = Column(Date)
     body_text = Column(Text)  # Full text of document (from PDF parsing - resolutions, drafts, etc.)
     doc_metadata = Column(JSONB)  # Full JSON for flexibility (renamed to avoid SQLAlchemy reserved word)
+    # Vector embedding for semantic search (1536 dims = OpenAI text-embedding-3-small)
+    body_text_embedding = Column(Vector(1536)) if PGVECTOR_AVAILABLE else None
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -151,7 +161,9 @@ class Utterance(Base):
     
     # Metadata from parsing
     utterance_metadata = Column(JSONB)  # resolution_metadata, draft_resolution_mentions, etc.
-    
+    # Vector embedding for semantic search (1536 dims = OpenAI text-embedding-3-small)
+    text_embedding = Column(Vector(1536)) if PGVECTOR_AVAILABLE else None
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

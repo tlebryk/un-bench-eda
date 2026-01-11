@@ -434,7 +434,7 @@ def get_utterances_tool() -> Dict[str, Any]:
                 },
                 "include_full_text": {
                     "type": "boolean",
-                    "description": "Include full utterance text (default false)"
+                    "description": "Return full utterance text instead of a preview (default false)"
                 }
             },
             "required": ["meeting_symbols"]
@@ -484,12 +484,10 @@ def execute_get_utterances(
             payload = {
                 "speaker_affiliation": u.speaker_affiliation,
                 "speaker_name": u.speaker_name,
-                "text": u.text[:500] if u.text else "",  # Truncate for context
+                "text": u.text if include_full_text else (u.text[:500] if u.text else ""),
                 "meeting_symbol": u.meeting.symbol if u.meeting else None,
                 "agenda_item": u.agenda_item_number
             }
-            if include_full_text:
-                payload["full_text"] = u.text
             utterance_payloads.append(payload)
 
         return {
@@ -514,7 +512,7 @@ def get_related_utterances_tool() -> Dict[str, Any]:
     return {
         "type": "function",
         "name": "get_related_utterances",
-        "description": "Get utterances tied to a document and its related chain (drafts, resolutions, meetings, agenda items). Filters utterances to those that explicitly reference any document in the chain.",
+        "description": "Get utterances tied to a document and its related chain (drafts, resolutions, agenda items, committee reports). Filters utterances to those that explicitly reference documents in the chain; meeting links are used only for locating utterances.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -538,7 +536,7 @@ def get_related_utterances_tool() -> Dict[str, Any]:
                 },
                 "include_full_text": {
                     "type": "boolean",
-                    "description": "Include full utterance text (default false)"
+                    "description": "Return full utterance text instead of a preview (default false)"
                 },
                 "limit": {
                     "type": "integer",
@@ -602,6 +600,7 @@ def execute_get_related_utterances(
                 )
                 WHERE dc.depth < :max_depth
                   AND d.id != dc.id
+                  AND d.doc_type NOT IN ('meeting', 'committee_meeting')
             )
             SELECT
                 u.id,
@@ -653,14 +652,12 @@ def execute_get_related_utterances(
                 "speaker_name": row[1],
                 "speaker_affiliation": row[2],
                 "agenda_item": row[3],
-                "text": row[4][:500] if row[4] else "",
+                "text": row[4] if include_full_text else (row[4][:500] if row[4] else ""),
                 "position_in_meeting": row[5],
                 "meeting_symbol": row[6],
                 "referenced_symbol": row[7],
                 "reference_type": row[8]
             }
-            if include_full_text:
-                payload["full_text"] = row[4]
             utterances.append(payload)
 
         logger.info("Found %s related utterances", len(utterances))
@@ -864,7 +861,240 @@ def execute_execute_sql_query(
         }
 
 
-# Tool 5: Answer With Evidence
+# Tool 8: Semantic Search
+
+def semantic_search_tool() -> Dict[str, Any]:
+    """Search documents and utterances by semantic meaning using vector embeddings."""
+    return {
+        "type": "function",
+        "name": "semantic_search",
+        "description": """Search for documents and utterances by semantic meaning (concepts, themes) rather than exact keywords.
+
+Use this when:
+- Looking for conceptual/thematic content (e.g., 'human rights violations', 'climate adaptation')
+- The user's question is about ideas/concepts rather than specific symbols/countries
+- Keyword search might miss relevant results due to synonyms or paraphrasing
+
+Returns documents and utterances ranked by semantic similarity to the query.
+Optionally filter by doc_type, session, or speaker countries.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The semantic search query describing what you're looking for"
+                },
+                "search_type": {
+                    "type": "string",
+                    "enum": ["documents", "utterances", "both"],
+                    "description": "What to search: 'documents' (resolutions, drafts), 'utterances' (speeches), or 'both'"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results per type (default: 10)"
+                },
+                "doc_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter documents by type: ['resolution', 'draft', 'meeting', 'committee_report']"
+                },
+                "session": {
+                    "type": "integer",
+                    "description": "Filter by UN session number (e.g., 78)"
+                },
+                "speaker_countries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter utterances by speaker country (e.g., ['France', 'Germany'])"
+                },
+                "min_similarity": {
+                    "type": "number",
+                    "description": "Minimum cosine similarity threshold (0-1, default: 0.5)"
+                }
+            },
+            "required": ["query", "search_type"]
+        }
+    }
+
+
+def execute_semantic_search(
+    query: str,
+    search_type: str = "both",
+    limit: int = 10,
+    doc_types: Optional[List[str]] = None,
+    session: Optional[int] = None,
+    speaker_countries: Optional[List[str]] = None,
+    min_similarity: float = 0.5
+) -> Dict[str, Any]:
+    """
+    Execute semantic search using pgvector.
+
+    Args:
+        query: Search query text
+        search_type: 'documents', 'utterances', or 'both'
+        limit: Max results per type
+        doc_types: Filter by document types
+        session: Filter by session number
+        speaker_countries: Filter utterances by speaker
+        min_similarity: Minimum similarity threshold (0-1)
+
+    Returns:
+        Dict with documents and/or utterances lists, each with similarity scores
+    """
+    from db.config import get_session
+    from db.models import PGVECTOR_AVAILABLE
+
+    db_session = get_session()
+    results: Dict[str, Any] = {
+        "query": query,
+        "documents": [],
+        "utterances": [],
+        "document_count": 0,
+        "utterance_count": 0
+    }
+
+    # Check if pgvector is available
+    if not PGVECTOR_AVAILABLE:
+        logger.warning("pgvector not available - semantic search disabled")
+        results["error"] = "Semantic search not available (pgvector not installed)"
+        return results
+
+    try:
+        # Generate query embedding
+        from rag.embeddings import embed_text
+        query_embedding = embed_text(query)
+        if not query_embedding:
+            results["error"] = "Failed to generate query embedding"
+            return results
+
+        # Convert to pgvector format
+        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+        logger.info(
+            "Semantic search: query=%s, type=%s, limit=%d, min_sim=%.2f",
+            query[:50], search_type, limit, min_similarity
+        )
+
+        # Search documents
+        if search_type in ["documents", "both"]:
+            doc_sql = """
+                SELECT
+                    d.id,
+                    d.symbol,
+                    d.doc_type,
+                    d.title,
+                    d.date,
+                    d.session,
+                    LEFT(d.body_text, 500) as text_preview,
+                    1 - (d.body_text_embedding <=> :embedding::vector) as similarity
+                FROM documents d
+                WHERE d.body_text_embedding IS NOT NULL
+                  AND 1 - (d.body_text_embedding <=> :embedding::vector) >= :min_similarity
+            """
+
+            params: Dict[str, Any] = {
+                "embedding": embedding_str,
+                "min_similarity": min_similarity
+            }
+
+            if doc_types:
+                doc_sql += " AND d.doc_type = ANY(:doc_types)"
+                params["doc_types"] = doc_types
+
+            if session:
+                doc_sql += " AND d.session = :session"
+                params["session"] = session
+
+            doc_sql += " ORDER BY similarity DESC LIMIT :limit"
+            params["limit"] = limit
+
+            doc_results = db_session.execute(text(doc_sql), params).fetchall()
+
+            results["documents"] = [
+                {
+                    "id": row[0],
+                    "symbol": row[1],
+                    "doc_type": row[2],
+                    "title": row[3],
+                    "date": str(row[4]) if row[4] else None,
+                    "session": row[5],
+                    "text_preview": row[6],
+                    "similarity": round(row[7], 4)
+                }
+                for row in doc_results
+            ]
+
+        # Search utterances
+        if search_type in ["utterances", "both"]:
+            utt_sql = """
+                SELECT
+                    u.id,
+                    u.speaker_affiliation,
+                    u.speaker_name,
+                    u.agenda_item_number,
+                    LEFT(u.text, 500) as text_preview,
+                    m.symbol as meeting_symbol,
+                    1 - (u.text_embedding <=> :embedding::vector) as similarity
+                FROM utterances u
+                JOIN documents m ON m.id = u.meeting_id
+                WHERE u.text_embedding IS NOT NULL
+                  AND 1 - (u.text_embedding <=> :embedding::vector) >= :min_similarity
+            """
+
+            params = {
+                "embedding": embedding_str,
+                "min_similarity": min_similarity
+            }
+
+            if speaker_countries:
+                country_filters = " OR ".join(
+                    f"u.speaker_affiliation ILIKE :speaker_{i}"
+                    for i in range(len(speaker_countries))
+                )
+                utt_sql += f" AND ({country_filters})"
+                for i, country in enumerate(speaker_countries):
+                    params[f"speaker_{i}"] = f"%{country}%"
+
+            if session:
+                utt_sql += " AND m.session = :session"
+                params["session"] = session
+
+            utt_sql += " ORDER BY similarity DESC LIMIT :limit"
+            params["limit"] = limit
+
+            utt_results = db_session.execute(text(utt_sql), params).fetchall()
+
+            results["utterances"] = [
+                {
+                    "id": row[0],
+                    "speaker_affiliation": row[1],
+                    "speaker_name": row[2],
+                    "agenda_item": row[3],
+                    "text_preview": row[4],
+                    "meeting_symbol": row[5],
+                    "similarity": round(row[6], 4)
+                }
+                for row in utt_results
+            ]
+
+        results["document_count"] = len(results["documents"])
+        results["utterance_count"] = len(results["utterances"])
+
+        logger.info(
+            "Semantic search found %d documents, %d utterances",
+            results["document_count"], results["utterance_count"]
+        )
+        return results
+
+    except Exception as e:
+        logger.error("Semantic search failed: %s", e, exc_info=True)
+        results["error"] = str(e)
+        return results
+    finally:
+        db_session.close()
+
+
+# Tool 9: Answer With Evidence
 
 def answer_with_evidence_tool() -> Dict[str, Any]:
     """Synthesize final answer from gathered evidence."""
