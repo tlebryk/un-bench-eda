@@ -18,9 +18,9 @@
             <h1>UNGA Research Tool</h1>
             <div class="mode-switcher">
                 {% if demo_mode %}
-                <span class="current-mode">Standard Mode</span>
+                <!-- <span class="current-mode">Standard Mode</span>
                 <span class="separator">|</span>
-                <a href="/?demo=false">Switch to Expert SQL Mode</a>
+                <a href="/?demo=false">Switch to Expert SQL Mode</a> -->
                 {% else %}
                 <a href="/?demo=true">Switch to Standard Mode</a>
                 <span class="separator">|</span>
@@ -38,7 +38,9 @@
                 <!-- Welcome message when empty -->
                 <div id="welcome-message" class="welcome-message">
                     <h2>Ask a question about UN resolutions</h2>
+                    {% if think_more_enabled %}
                     <p class="helper-text">Quick Answer: Direct SQL result. Think More: AI agent iterates on your query for deeper insights.</p>
+                    {% endif %}
                     {% if demo_mode and demo_questions %}
                     <div class="chips-row">
                         <p>Example questions:</p>
@@ -74,6 +76,7 @@
                     </div>
 
                     <!-- RAG Mode Selector -->
+                    {% if think_more_enabled %}
                     <div class="research-mode-selector">
                         <span class="mode-label">Mode:</span>
                         <label title="Direct answer using a single generated SQL query">
@@ -85,6 +88,7 @@
                             <span class="mode-name">🧠 Think More</span>
                         </label>
                     </div>
+                    {% endif %}
                 </form>
             </div>
         </div>
@@ -262,11 +266,13 @@
         </details>
         {% endif %}
 
-        {% if demo_mode and sql_query %}
+        {% if not demo_mode and sql_query %}
         <div class="card sql-demo-view">
             <details>
+                {% if not demo_mode %}
                 <summary>View Generated SQL (Demo)</summary>
                 <pre>{{ sql_query }}</pre>
+                {% endif %}
             </details>
         </div>
         {% endif %}
@@ -393,11 +399,47 @@
         // Format answer HTML from API response
         function formatAnswerHTML(data) {
             if (!data) {
-                return '<div class="error-message">No response received</div>';
+                return '<div class="error-message" style="color: var(--error-text); background: var(--error-bg); padding: var(--space-md); border-radius: var(--radius-md); border: 1px solid var(--error-border);">No response received from the server.</div>';
+            }
+
+            // Check for error field and display appropriate error message
+            if (data.error) {
+                const errorIcons = {
+                    'connection_error': '🌐',
+                    'timeout_error': '⏱️',
+                    'api_error': '⚠️',
+                    'execution_error': '❌',
+                    'synthesis_error': '🔧',
+                    'unexpected_error': '⚠️'
+                };
+                const icon = errorIcons[data.error] || '❌';
+                const errorTitle = {
+                    'connection_error': 'Connection Error',
+                    'timeout_error': 'Request Timeout',
+                    'api_error': 'Service Error',
+                    'execution_error': 'Query Error',
+                    'synthesis_error': 'Processing Error',
+                    'unexpected_error': 'Unexpected Error'
+                }[data.error] || 'Error';
+
+                let html = `<div class="error-message" style="color: var(--error-text); background: var(--error-bg); padding: var(--space-md); border-radius: var(--radius-md); border: 1px solid var(--error-border);">
+                    <div style="font-weight: 600; margin-bottom: var(--space-xs);">${icon} ${errorTitle}</div>
+                    <div>${escapeHtml(data.answer)}</div>`;
+
+                // Show error details in a collapsible section for debugging
+                if (data.error_details) {
+                    html += `<details style="margin-top: var(--space-sm); font-size: var(--font-size-sm); opacity: 0.8;">
+                        <summary style="cursor: pointer;">Technical Details</summary>
+                        <pre style="margin-top: var(--space-xs); padding: var(--space-xs); background: rgba(0,0,0,0.1); border-radius: var(--radius-sm); overflow-x: auto;">${escapeHtml(data.error_details)}</pre>
+                    </details>`;
+                }
+
+                html += '</div>';
+                return html;
             }
 
             const answer = data.answer || 'No answer provided';
-            let html = `<div class="answer-content">${answer.replace(/\n/g, '<br>')}</div>`;
+            let html = `<div class="answer-content">${escapeHtml(answer).replace(/\n/g, '<br>')}</div>`;
 
             // Extract SQL query and results from steps
             let sqlQuery = data.sql || null;
@@ -528,6 +570,27 @@
             window.URL.revokeObjectURL(url);
         }
 
+        // Helper function to fetch with timeout
+        async function fetchWithTimeout(url, options, timeout = 600000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timed out after 10 minutes. The query may be too complex.');
+                }
+                throw error;
+            }
+        }
+
         // 0. Route form based on mode - now uses AJAX
         const searchForm = document.getElementById('search-form');
         if (searchForm) {
@@ -542,11 +605,13 @@
                     return;
                 }
 
+                // Get input element
+                const queryInput = searchForm.querySelector('input[name="natural_language_query"]');
+
                 // Show user message immediately
                 appendMessage('user', query);
 
-                // Clear input
-                const queryInput = searchForm.querySelector('input[name="natural_language_query"]');
+                // Clear input immediately after showing message
                 queryInput.value = '';
 
                 // Show loading state in chat
@@ -557,10 +622,10 @@
 
                 try {
                     console.log('Sending request to /api/multistep-answer');
-                    const response = await fetch('/api/multistep-answer', {
+                    const response = await fetchWithTimeout('/api/multistep-answer', {
                         method: 'POST',
                         body: formData
-                    });
+                    }, 600000);
                     console.log('Response received:', response.status);
 
                     let data;

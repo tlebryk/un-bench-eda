@@ -133,7 +133,7 @@ def generate_sql(
     natural_language_query: str,
     model: Optional[str] = None,
     validate: bool = True,
-    previous_symbols: Optional[List[str]] = None
+    conversation_context: Optional[str] = None
 ) -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
@@ -142,7 +142,7 @@ def generate_sql(
         natural_language_query: The natural language question
         model: OpenAI model to use (default: configured model)
         validate: Whether to validate the generated SQL for security (default: True)
-        previous_symbols: Optional list of document symbols from previous conversation turns
+        conversation_context: Optional string with previous Q&A for multi-turn context
 
     Returns:
         SQL query string or None if generation fails
@@ -155,25 +155,34 @@ def generate_sql(
         model = DEFAULT_MODEL
 
     logger.info(f"Generating SQL from natural language query (model: {model}): {natural_language_query}")
-    if previous_symbols:
-        logger.info(f"With previous symbols context: {previous_symbols}")
+    if conversation_context:
+        logger.info(f"With conversation context provided")
+        logger.info(f"CONVERSATION CONTEXT (full):\n{conversation_context}")
+    else:
+        logger.info("No conversation context (first turn)")
 
     client = get_client()
 
     try:
-        # Build context section if we have previous symbols
+        # Build context section if we have previous conversation
         context_section = ""
-        if previous_symbols:
+        if conversation_context:
             context_section = f"""
 
-CONVERSATION CONTEXT:
-Previously referenced documents: {', '.join(previous_symbols)}
-If the question references 'these', 'they', 'it', 'the resolutions', etc., it likely refers to the documents listed above.
-When filtering by document symbols, use: WHERE symbol IN ({', '.join(f"'{s}'" for s in previous_symbols)})
+CONVERSATION HISTORY:
+{conversation_context}
+
+The current question may reference information from the conversation above (e.g., "that resolution", "those countries").
 """
 
         # Use standard OpenAI chat completions API
         prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + context_section + f"\n\nConvert this question to SQL: {natural_language_query}"
+
+        logger.info(f"FULL PROMPT TO OPENAI (length: {len(prompt)} chars):")
+        logger.info(f"{'='*80}")
+        logger.info(prompt)
+        logger.info(f"{'='*80}")
+
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],

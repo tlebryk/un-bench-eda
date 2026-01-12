@@ -788,7 +788,7 @@ details[open] summary {
 .chat-input-wrapper {
     position: sticky;
     bottom: 0;
-    background: var(--bg-primary);
+    background: var(--bg-card);
     padding: var(--space-md);
     border-top: 1px solid var(--border-color);
     margin-top: auto;
@@ -832,14 +832,15 @@ details[open] summary {
 }
 
 .user-message {
-    background: var(--primary);
-    color: white;
+    background: #F0F4F8;
+    color: var(--text-primary);
     margin-left: auto;
+    border: 1px solid var(--border-color);
     border-bottom-right-radius: 4px;
 }
 
 .assistant-message {
-    background: var(--bg-secondary);
+    background: var(--bg-card);
     border: 1px solid var(--border-color);
     margin-right: auto;
     border-bottom-left-radius: 4px;
@@ -859,7 +860,7 @@ details[open] summary {
 
 .chat-message summary {
     cursor: pointer;
-    font-size: var(--font-size-sm);
+    font-size: var(--text-sm);
     color: var(--text-secondary);
 }
 
@@ -873,7 +874,7 @@ details[open] summary {
     width: 14px;
     height: 14px;
     border: 2px solid var(--border-color);
-    border-top-color: var(--primary);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     vertical-align: middle;
@@ -887,5 +888,6 @@ details[open] summary {
 /* Small button variant */
 .btn-sm {
     padding: var(--space-xs) var(--space-sm);
-    font-size: var(--font-size-sm);
+    font-size: var(--text-sm);
+    height: auto;
 }

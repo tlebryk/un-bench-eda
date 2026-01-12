@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ logger = get_logger(__name__, log_file="rag_qa.log")
 _client = None
 
 # Maximum number of results to include in evidence extraction
-MAX_RESULTS_FOR_EVIDENCE = 20
+MAX_RESULTS_FOR_EVIDENCE = 100
 
 
 def get_client():
@@ -221,7 +222,7 @@ def answer_question(
     # Format evidence for prompt
     formatted_evidence = format_evidence_for_prompt(evidence_context)
 
-    # Extract sources (document symbols) - look for symbol-like columns
+    # Extract sources (document symbols) from query results
     sources = []
     for evidence in evidence_context:
         data = evidence.get("data", {})

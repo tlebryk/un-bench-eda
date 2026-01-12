@@ -134,6 +134,9 @@ def save_simple_turn(
     """
     Save a simple RAG turn to conversation.
 
+    Note: Both "simple" and "multistep" conversations can store simple_turns.
+    Multistep conversations use simple_turns when running in fast mode.
+
     Args:
         conversation_id: Conversation identifier
         turn: SimpleTurn to save
@@ -144,17 +147,13 @@ def save_simple_turn(
         logger.error(f"Cannot save turn: conversation {conversation_id} not found")
         return
 
-    if conv.rag_type != "simple":
-        logger.error(f"Cannot save simple turn to {conv.rag_type} conversation")
-        return
-
     with _conversations_lock:
         conv.simple_turns.append(turn)
         conv.active_symbols.update(new_symbols)
         conv.total_turns += 1
 
     logger.info(
-        f"Saved turn {turn.turn_number} to conversation {conversation_id} "
+        f"Saved turn {turn.turn_number} to conversation {conversation_id} (type={conv.rag_type}) "
         f"(sources={len(turn.sources)}, new_symbols={len(new_symbols)})"
     )
 

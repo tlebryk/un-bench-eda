@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, APIError, APITimeoutError
 
 from rag.multistep.tools import (
     get_related_documents_tool, execute_get_related_documents,
@@ -105,7 +105,7 @@ class MultiStepOrchestrator:
         question: str,
         mode: str = "deep",
         conversation_history: Optional[List[Dict[str, Any]]] = None,
-        previous_symbols: Optional[Set[str]] = None
+        simple_turns: Optional[List] = None
     ) -> Dict[str, Any]:
         """
         Answer complex question using multi-step tool calling.
@@ -113,8 +113,8 @@ class MultiStepOrchestrator:
         Args:
             question: The user's question.
             mode: "deep" (default) for agentic loop, "fast" for direct SQL->Answer.
-            conversation_history: Previous conversation input_list for multi-turn.
-            previous_symbols: Document symbols from previous turns for context.
+            conversation_history: Previous conversation input_list for multi-turn (deep mode).
+            simple_turns: Previous SimpleTurn objects for context (fast mode).
 
         Returns: {
             "answer": str,
@@ -130,24 +130,39 @@ class MultiStepOrchestrator:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         traj_log_file = log_dir / f"trajectory_{timestamp}.log"
-        
+
         file_handler = logging.FileHandler(traj_log_file)
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        
+
         # Attach handler to the module logger
         logger.addHandler(file_handler)
-        
+
         try:
             if mode == "fast":
-                return self._answer_fast(question, previous_symbols=previous_symbols)
+                # Format conversation history from simple turns
+                formatted_history = None
+                if simple_turns:
+                    logger.info(f"Formatting conversation history from {len(simple_turns)} previous turns")
+                    history_lines = []
+                    for i, turn in enumerate(simple_turns[-3:], 1):  # Last 3 turns for context
+                        logger.info(f"  Turn {i}: Q='{turn.question[:100]}...' A='{turn.answer[:100]}...'")
+                        history_lines.append(f"Q: {turn.question}")
+                        history_lines.append(f"A: {turn.answer}")
+                    formatted_history = "\n".join(history_lines)
+                    logger.info(f"FORMATTED CONVERSATION HISTORY (length: {len(formatted_history)} chars):")
+                    logger.info(f"{'='*80}")
+                    logger.info(formatted_history)
+                    logger.info(f"{'='*80}")
+                else:
+                    logger.info("No previous turns - starting new conversation")
+
+                return self._answer_fast(question, conversation_history=formatted_history)
 
             logger.info(f"\n\n{'#'*60}")
             logger.info(f"🚀 STARTING MULTI-STEP QUERY (Deep Mode)")
             logger.info(f"❓ Question: {question}")
             if conversation_history:
                 logger.info(f"📜 Continuing conversation with {len(conversation_history)} previous messages")
-            if previous_symbols:
-                logger.info(f"📎 Previous symbols: {previous_symbols}")
             logger.info(f"{'#'*60}\n")
 
             # Initialize conversation - continue from history or start fresh
@@ -309,9 +324,54 @@ class MultiStepOrchestrator:
                         logger.info("No function call in response, stopping.")
                         break
 
+                except APIConnectionError as e:
+                    logger.error(f"API Connection Error: {e}", exc_info=True)
+                    return {
+                        "answer": "Unable to connect to the AI service. Please check your internet connection and try again.",
+                        "evidence": [],
+                        "sources": [],
+                        "steps": steps_taken,
+                        "error": "connection_error",
+                        "error_details": str(e),
+                        "input_list": input_list,
+                        "accumulated_evidence": dict(accumulated_evidence)
+                    }
+                except APITimeoutError as e:
+                    logger.error(f"API Timeout Error: {e}", exc_info=True)
+                    return {
+                        "answer": "The request timed out. The service may be overloaded. Please try again.",
+                        "evidence": [],
+                        "sources": [],
+                        "steps": steps_taken,
+                        "error": "timeout_error",
+                        "error_details": str(e),
+                        "input_list": input_list,
+                        "accumulated_evidence": dict(accumulated_evidence)
+                    }
+                except APIError as e:
+                    logger.error(f"API Error: {e}", exc_info=True)
+                    return {
+                        "answer": f"AI service error: {str(e)}",
+                        "evidence": [],
+                        "sources": [],
+                        "steps": steps_taken,
+                        "error": "api_error",
+                        "error_details": str(e),
+                        "input_list": input_list,
+                        "accumulated_evidence": dict(accumulated_evidence)
+                    }
                 except Exception as e:
-                    logger.error(f"Error in multi-step loop: {e}", exc_info=True)
-                    break
+                    logger.error(f"Unexpected error in multi-step loop: {e}", exc_info=True)
+                    return {
+                        "answer": f"An unexpected error occurred: {str(e)}",
+                        "evidence": [],
+                        "sources": [],
+                        "steps": steps_taken,
+                        "error": "unexpected_error",
+                        "error_details": str(e),
+                        "input_list": input_list,
+                        "accumulated_evidence": dict(accumulated_evidence)
+                    }
 
             # Synthesize final answer using rag_qa.py
             logger.info(f"\n{'='*60}")
@@ -615,29 +675,29 @@ class MultiStepOrchestrator:
     def _answer_fast(
         self,
         question: str,
-        previous_symbols: Optional[Set[str]] = None
+        conversation_history: Optional[str] = None
     ) -> Dict[str, Any]:
         """Fast mode: Direct NL -> SQL -> Answer pipeline."""
         logger.info(f"\n\n{'#'*60}")
         logger.info(f"🚀 STARTING FAST QUERY (Direct SQL)")
         logger.info(f"❓ Question: {question}")
-        if previous_symbols:
-            logger.info(f"📎 Previous symbols for context: {previous_symbols}")
+        if conversation_history:
+            logger.info(f"📜 With conversation history")
         logger.info(f"{'#'*60}\n")
 
         start_time = time.time()
         steps_taken = []
 
-        # Step 1: Execute SQL (with previous_symbols context if available)
+        # Step 1: Execute SQL (with conversation context if available)
         tool_name = "execute_sql_query"
         logger.info(f"Executing {tool_name} directly...")
 
         try:
             # We use the executor directly
-            # Pass previous_symbols for context-aware SQL generation
+            # Pass conversation history for context-aware SQL generation
             result = self.executors[tool_name](
                 natural_language_query=question,
-                previous_symbols=list(previous_symbols) if previous_symbols else None
+                conversation_context=conversation_history
             )
             execution_time = time.time() - start_time
 
@@ -650,14 +710,51 @@ class MultiStepOrchestrator:
 
             logger.info(f"✅ SQL execution completed in {execution_time:.2f}s")
 
-        except Exception as e:
-            logger.error(f"Fast mode SQL failed: {e}", exc_info=True)
+        except APIConnectionError as e:
+            logger.error(f"API Connection Error in fast mode: {e}", exc_info=True)
             return {
-                "answer": f"I failed to execute the query. Error: {str(e)}",
+                "answer": "Unable to connect to the AI service. Please check your internet connection and try again.",
                 "evidence": [],
                 "sources": [],
                 "steps": steps_taken,
-                "error": str(e),
+                "error": "connection_error",
+                "error_details": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+        except APITimeoutError as e:
+            logger.error(f"API Timeout Error in fast mode: {e}", exc_info=True)
+            return {
+                "answer": "The request timed out. The service may be overloaded. Please try again.",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": "timeout_error",
+                "error_details": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+        except APIError as e:
+            logger.error(f"API Error in fast mode: {e}", exc_info=True)
+            return {
+                "answer": f"AI service error: {str(e)}",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": "api_error",
+                "error_details": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+        except Exception as e:
+            logger.error(f"Fast mode SQL failed: {e}", exc_info=True)
+            return {
+                "answer": f"Failed to execute the query: {str(e)}",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": "execution_error",
+                "error_details": str(e),
                 "input_list": [],
                 "accumulated_evidence": {}
             }
@@ -689,14 +786,39 @@ class MultiStepOrchestrator:
                 "accumulated_evidence": {"execute_sql_query": [result]}
             }
 
-        except Exception as e:
-            logger.error(f"Fast mode synthesis failed: {e}", exc_info=True)
+        except APIConnectionError as e:
+            logger.error(f"API Connection Error during synthesis: {e}", exc_info=True)
             return {
-                "answer": "I found data but failed to generate an answer.",
+                "answer": "Unable to connect to the AI service while generating the answer. Please check your internet connection and try again.",
                 "evidence": [],
                 "sources": [],
                 "steps": steps_taken,
-                "error": str(e),
+                "error": "connection_error",
+                "error_details": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+        except APITimeoutError as e:
+            logger.error(f"API Timeout during synthesis: {e}", exc_info=True)
+            return {
+                "answer": "The request timed out while generating the answer. Please try again.",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": "timeout_error",
+                "error_details": str(e),
+                "input_list": [],
+                "accumulated_evidence": {}
+            }
+        except Exception as e:
+            logger.error(f"Fast mode synthesis failed: {e}", exc_info=True)
+            return {
+                "answer": f"Found data but failed to generate an answer: {str(e)}",
+                "evidence": [],
+                "sources": [],
+                "steps": steps_taken,
+                "error": "synthesis_error",
+                "error_details": str(e),
                 "input_list": [],
                 "accumulated_evidence": {}
             }
