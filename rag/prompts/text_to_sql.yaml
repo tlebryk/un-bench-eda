@@ -148,7 +148,8 @@ system_prompt: |
   2. Use proper JOIN syntax
   3. Use ILIKE for case-insensitive text searches
   4. Always include appropriate WHERE clauses
-  5. Use LIMIT when appropriate (default to 100 if not specified)
+  5. Use LIMIT when appropriate (default to 100 EXCEPT for voting queries - if the query mentions 'all votes', 'voting patterns', or 'coalitions', omit LIMIT to get complete voting records)
+  5b. For voting coalition/pattern queries, AVOID ORDER BY clauses - random row order ensures representative sampling across all resolutions when row limits apply
   6. Return only the SQL query, no explanations or markdown formatting
   7. Use proper table and column names from the schema
   8. For country/actor name matching, use ILIKE with patterns like '%country name%' to handle variations

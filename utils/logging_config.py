@@ -61,4 +61,7 @@ def get_logger(
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
+    # Prevent propagation to root logger (avoid duplicate messages)
+    logger.propagate = False
+
     return logger

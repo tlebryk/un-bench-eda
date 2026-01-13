@@ -133,15 +133,36 @@
             </details>
             {% endif %}
 
+            {% set direct_links = rag_answer.source_links or [] %}
+            {% set ns = namespace(fallback=[]) %}
             {% if rag_answer.sources %}
+                {% for source in rag_answer.sources %}
+                    {% set already = direct_links | selectattr('symbol', 'equalto', source) | list %}
+                    {% if already|length == 0 %}
+                        {% set ns.fallback = ns.fallback + [source] %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            {% set total_sources = direct_links|length + ns.fallback|length %}
+            {% if total_sources > 0 %}
             <details>
-                <summary>Sources ({{ rag_answer.sources|length }})</summary>
+                <summary>Sources ({{ total_sources }})</summary>
                 <div>
-                    {% for source in rag_answer.sources %}
-                    <span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block; cursor: pointer;"
-                          onclick="window.open('https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=' + encodeURIComponent('{{ source }}'), '_blank')">
+                    {% for source in direct_links %}
+                    <a class="badge badge-pdf"
+                       style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;"
+                       href="{{ source.url }}"
+                       target="_blank" rel="noopener noreferrer">
+                        {{ source.symbol }}
+                    </a>
+                    {% endfor %}
+                    {% for source in ns.fallback %}
+                    <a class="badge badge-pdf"
+                       style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;"
+                       href="https://digitallibrary.un.org/search?ln=en&amp;cc=Voting+Data&amp;p={{ source | urlencode }}"
+                       target="_blank" rel="noopener noreferrer">
                         {{ source }}
-                    </span>
+                    </a>
                     {% endfor %}
                 </div>
             </details>
@@ -503,12 +524,9 @@
             }
 
             // Sources section
-            if (data.sources && data.sources.length > 0) {
-                html += `<details><summary>Sources (${data.sources.length})</summary><div style="margin-top: var(--space-sm);">`;
-                data.sources.forEach(source => {
-                    html += `<span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;">${source}</span>`;
-                });
-                html += '</div></details>';
+            const sourcesSection = renderSourcesSection(data);
+            if (sourcesSection) {
+                html += sourcesSection;
             }
 
             // Research Steps section
@@ -532,6 +550,64 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function buildSourceBadge(symbol, directUrl) {
+            let label = symbol;
+            let linkUrl = directUrl;
+
+            if (typeof symbol === 'object' && symbol !== null) {
+                label = symbol.symbol || symbol.display || '';
+                linkUrl = linkUrl || symbol.url;
+            }
+
+            if (label === undefined || label === null) {
+                label = '';
+            }
+
+            label = String(label).trim();
+            if (!label) {
+                return '';
+            }
+
+            if (!linkUrl) {
+                linkUrl = `https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=${encodeURIComponent(label)}`;
+            }
+
+            return `<a class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;" href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+        }
+
+        function renderSourcesSection(data) {
+            if (!data) {
+                return '';
+            }
+
+            const links = Array.isArray(data.source_links) ? data.source_links : [];
+            const symbols = Array.isArray(data.sources) ? data.sources : [];
+            const seen = new Set();
+            let badges = '';
+
+            links.forEach(link => {
+                if (!link || !link.symbol) {
+                    return;
+                }
+                seen.add(link.symbol);
+                badges += buildSourceBadge(link.symbol, link.url);
+            });
+
+            symbols.forEach(symbol => {
+                if (!symbol || seen.has(symbol)) {
+                    return;
+                }
+                seen.add(symbol);
+                badges += buildSourceBadge(symbol);
+            });
+
+            if (!badges) {
+                return '';
+            }
+
+            return `<details><summary>Sources (${seen.size})</summary><div style="margin-top: var(--space-sm);">${badges}</div></details>`;
         }
 
         // Handle download button clicks (delegated)
@@ -754,16 +830,9 @@
                     
                     if(!res.ok) throw new Error(data.error || 'Error');
 
-                    let sourcesHtml = '';
-                    if(data.sources && data.sources.length > 0) {
-                        sourcesHtml = `<details><summary>Sources (${data.sources.length})</summary><div>`;
-                        data.sources.forEach(source => {
-                            sourcesHtml += `<span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;">${source}</span>`;
-                        });
-                        sourcesHtml += '</div></details>';
-                    }
+                    const sourcesHtml = renderSourcesSection(data);
 
-                    container.innerHTML = `<div class="answer-card"><h3>Answer</h3><div class="answer-content">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}</div>`;
+                    container.innerHTML = `<div class="answer-card"><h3>Answer</h3><div class="answer-content">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml || ''}</div>`;
                     answerBtn.innerText = 'Answered';
                 } catch(e) {
                     container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;

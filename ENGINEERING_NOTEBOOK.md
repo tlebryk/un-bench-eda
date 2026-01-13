@@ -271,3 +271,12 @@ Fixed critical gap where resolution body text wasn't being stored in database:
 Coverage: 336/336 resolutions (100%) now have full PDF text available for search and summarization.
 
 Migration: `ALTER TABLE documents ADD COLUMN body_text TEXT;` then reload with `uv run -m etl.run_etl --resolutions-only`
+
+
+
+RAG debugging/error assignment:
+  parsing: etl failed to properly parse the raw docs in @data/documents\                                                                                                                                                                          
+  Database: we failed to properly configure a database to handle the data parsed into @data/parsed/\                                                                                                                                              
+  Orchestration: our orchestrator model had a bad prompt or bad tool descriptions so they didn't use them or the tools themselves were bad, insuffient, or too much (distracting from valuabel tools)\                                            
+  text to sql: our text to sql prompt is bad\                                                                                                                                                                                                     
+  model: everything was perfect, our model was just too dumb to figure this out. \     

@@ -17,7 +17,8 @@ from rag.multistep.tools import (
     get_document_details_tool, execute_get_document_details,
     execute_sql_query_tool, execute_execute_sql_query,
     answer_with_evidence_tool,
-    get_full_text_context_tool, execute_get_full_text_context
+    get_full_text_context_tool, execute_get_full_text_context,
+    analyze_with_python_tool, execute_analyze_with_python,
 )
 from rag.prompt_registry import get_prompt
 from rag.prompt_config import get_default_model
@@ -30,12 +31,13 @@ logger = get_logger(__name__, log_file="multistep_tools.log")
 class MultiStepOrchestrator:
     """Orchestrate multi-step RAG queries using OpenAI tool calling."""
 
-    def __init__(self, model: Optional[str] = None, max_steps: int = 6):
+    def __init__(self, model: Optional[str] = None, max_steps: int = 6, verbose: bool = False):
         if model is None:
             model = get_default_model()
         self.model = model
         self.max_steps = max_steps
-        
+        self.verbose = verbose
+
         # Initialize client lazily or check env var
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -53,6 +55,7 @@ class MultiStepOrchestrator:
             get_related_utterances_tool(),
             # get_chain_utterances_tool(),
             # get_full_text_context_tool(),
+            analyze_with_python_tool(),
             answer_with_evidence_tool(),
         ]
 
@@ -67,6 +70,7 @@ class MultiStepOrchestrator:
             "get_related_utterances": execute_get_related_utterances,
             # "get_chain_utterances": execute_get_chain_utterances,
             # "get_full_text_context": execute_get_full_text_context,
+            "analyze_with_python": execute_analyze_with_python,
         }
 
     @staticmethod
@@ -191,23 +195,32 @@ class MultiStepOrchestrator:
                     # The offboarding doc explicitly says: Use client.responses.create() API (NOT chat.completions.create)
                     # and references sample_oai_function_call.py
                     
-                    logger.info(
-                        "OAI input (chars=%s): %s",
-                        self._estimate_input_chars(input_list),
-                        self._serialize_input_list(input_list)
-                    )
+                    # Log OAI input - verbose mode shows full payload, quiet mode just char count
+                    if self.verbose:
+                        logger.info(
+                            "OAI input (chars=%s): %s",
+                            self._estimate_input_chars(input_list),
+                            self._serialize_input_list(input_list)
+                        )
+                    else:
+                        logger.info("OAI call (input: %s chars)", self._estimate_input_chars(input_list))
 
                     response = self.client.responses.create(
                         model=self.model,
                         tools=self.tools,
                         input=input_list,
+                            reasoning={
+                                "effort": "medium"
+                            }
                     )
 
                     if hasattr(response, "output"):
-                        logger.info(
-                            "OAI response output: %s",
-                            self._serialize_response_output(response.output)
-                        )
+                        if self.verbose:
+                            logger.info(
+                                "OAI response output: %s",
+                                self._serialize_response_output(response.output)
+                            )
+                        # Quiet mode: logged below per tool call
                     else:
                         logger.warning("OAI response missing output attribute for logging.")
 
@@ -251,17 +264,27 @@ class MultiStepOrchestrator:
                                 # Execute tool
                                 start_time = time.time()
                                 try:
-                                    result = self.executors[tool_name](**arguments)
+                                    # Special handling for analyze_with_python - pass accumulated evidence
+                                    if tool_name == "analyze_with_python":
+                                        result = self.executors[tool_name](
+                                            accumulated_evidence=dict(accumulated_evidence),
+                                            **arguments
+                                        )
+                                    else:
+                                        result = self.executors[tool_name](**arguments)
                                     execution_time = time.time() - start_time
 
                                     # Log success with result summary
                                     logger.info(f"✅ Tool executed successfully in {execution_time:.2f}s")
-                                    logger.info(f"📤 Result summary: {self._summarize_result(tool_name, result)}")
-                                    logger.info(
-                                        "📦 Tool output (chars=%s): %s",
-                                        len(json.dumps(result, ensure_ascii=True)),
-                                        json.dumps(result, ensure_ascii=True)[:8000] + "...[truncated]" if len(json.dumps(result, ensure_ascii=True)) > 8000 else json.dumps(result, ensure_ascii=True)
-                                    )
+                                    logger.info(f"📤 Result summary: {self._summarize_result(tool_name, result, arguments)}")
+
+                                    # Only log full tool output in verbose mode
+                                    if self.verbose:
+                                        logger.info(
+                                            "📦 Tool output (chars=%s): %s",
+                                            len(json.dumps(result, ensure_ascii=True)),
+                                            json.dumps(result, ensure_ascii=True)[:8000] + "...[truncated]" if len(json.dumps(result, ensure_ascii=True)) > 8000 else json.dumps(result, ensure_ascii=True)
+                                        )
 
                                 except Exception as e:
                                     execution_time = time.time() - start_time
@@ -278,11 +301,12 @@ class MultiStepOrchestrator:
                                 # Store evidence
                                 accumulated_evidence[tool_name].append(result)
 
-                                # Add function result to conversation
+                                # Add function result to conversation (truncated for LLM context)
+                                truncated_result = self._truncate_result_for_context(tool_name, result)
                                 input_list.append({
                                     "type": "function_call_output",
                                     "call_id": item.call_id,
-                                    "output": json.dumps(result)
+                                    "output": json.dumps(truncated_result)
                                 })
 
                             logger.info(f"{'='*60}\n")
@@ -317,6 +341,7 @@ class MultiStepOrchestrator:
                                 "answer": assistant_text,
                                 "evidence": [],
                                 "sources": [],
+                                "source_links": [],
                                 "steps": steps_taken,
                                 "input_list": input_list,
                                 "accumulated_evidence": accumulated_evidence
@@ -330,6 +355,7 @@ class MultiStepOrchestrator:
                         "answer": "Unable to connect to the AI service. Please check your internet connection and try again.",
                         "evidence": [],
                         "sources": [],
+                        "source_links": [],
                         "steps": steps_taken,
                         "error": "connection_error",
                         "error_details": str(e),
@@ -342,6 +368,7 @@ class MultiStepOrchestrator:
                         "answer": "The request timed out. The service may be overloaded. Please try again.",
                         "evidence": [],
                         "sources": [],
+                        "source_links": [],
                         "steps": steps_taken,
                         "error": "timeout_error",
                         "error_details": str(e),
@@ -354,6 +381,7 @@ class MultiStepOrchestrator:
                         "answer": f"AI service error: {str(e)}",
                         "evidence": [],
                         "sources": [],
+                        "source_links": [],
                         "steps": steps_taken,
                         "error": "api_error",
                         "error_details": str(e),
@@ -366,6 +394,7 @@ class MultiStepOrchestrator:
                         "answer": f"An unexpected error occurred: {str(e)}",
                         "evidence": [],
                         "sources": [],
+                        "source_links": [],
                         "steps": steps_taken,
                         "error": "unexpected_error",
                         "error_details": str(e),
@@ -388,6 +417,13 @@ class MultiStepOrchestrator:
             
             # Format evidence for rag_qa.answer_question
             formatted_evidence = self._format_evidence_for_answer(accumulated_evidence)
+
+            # Debug: log evidence summary
+            logger.info(f"Evidence for synthesis: {len(formatted_evidence.get('rows', []))} rows")
+            python_analysis_rows = [r for r in formatted_evidence.get('rows', []) if r.get('_type') == 'python_analysis']
+            if python_analysis_rows:
+                logger.info(f"  - {len(python_analysis_rows)} Python analysis rows included")
+                logger.info(f"  - First analysis row: {python_analysis_rows[0].get('summary', 'N/A')}")
             
             # We also want to include the question in the formatted evidence context somehow
             # or rely on rag_qa to use the original question.
@@ -407,6 +443,7 @@ class MultiStepOrchestrator:
                     "answer": final_result["answer"],
                     "evidence": final_result["evidence"],
                     "sources": final_result["sources"],
+                    "source_links": final_result.get("source_links", []),
                     "steps": steps_taken,
                     "row_count": formatted_evidence.get("row_count", 0),
                     # Include conversation state for storage
@@ -435,6 +472,7 @@ class MultiStepOrchestrator:
                     "answer": "I gathered some information but failed to synthesize a final answer.",
                     "evidence": [],
                     "sources": [],
+                    "source_links": [],
                     "steps": steps_taken,
                     "error": str(e)
                 }
@@ -443,15 +481,110 @@ class MultiStepOrchestrator:
             file_handler.close()
             logger.removeHandler(file_handler)
 
-    def _summarize_result(self, tool_name: str, result: Dict[str, Any]) -> str:
-        """Create a concise summary of tool result for logging."""
+    def _truncate_result_for_context(self, tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Truncate large results before adding to LLM context.
+
+        Full results are stored in accumulated_evidence for Python tool access.
+        This returns a preview for the LLM to understand what was returned.
+
+        Args:
+            tool_name: Name of the tool
+            result: Full result dict
+
+        Returns:
+            Truncated result dict suitable for LLM context
+        """
+        if "error" in result:
+            return result  # Keep errors as-is
+
+        if tool_name == "execute_sql_query":
+            # For SQL: keep metadata, but show diverse sample rows
+            rows = result.get("rows", [])
+            row_count = len(rows)
+
+            # Sample rows: first few, middle, and end to show diversity
+            if row_count <= 50:
+                sample_rows = rows
+            else:
+                # Show first 10, middle 5, last 5 = 20 rows showing data diversity
+                sample_rows = (
+                    rows[:10] +  # Beginning
+                    rows[row_count // 2 - 2:row_count // 2 + 3] +  # Middle 5
+                    rows[-5:]  # End
+                )
+
+            truncated = result.copy()
+            truncated["rows"] = sample_rows
+            truncated["row_count"] = row_count
+            truncated["truncated_for_context"] = row_count > 50
+
+            if row_count > 20:
+                # Help LLM understand data diversity
+                # Check if this is voting data with multiple resolutions
+                if rows and 'resolution_symbol' in rows[0]:
+                    # Count unique resolutions in full data
+                    unique_resolutions = len(set(row.get('resolution_symbol') for row in rows))
+                    # Also sample some resolution symbols from later in the dataset
+                    sample_mid = rows[row_count // 2].get('resolution_symbol') if row_count > 100 else None
+                    sample_end = rows[-1].get('resolution_symbol')
+
+                    truncated["context_note"] = (
+                        f"⚠️ PREVIEW ONLY - DO NOT analyze just these 20 rows! ⚠️\n"
+                        f"This preview shows rows 1-20 from a dataset of {row_count} total rows.\n"
+                        f"The FULL dataset contains {unique_resolutions} DIFFERENT resolutions:\n"
+                        f"  - First: {rows[0].get('resolution_symbol')}\n"
+                        f"  - Middle: {sample_mid}\n"
+                        f"  - Last: {sample_end}\n"
+                        f"The analyze_with_python tool receives ALL {row_count} rows across all {unique_resolutions} resolutions.\n"
+                        f"For coalition analysis, you MUST use the full data, not just this preview!"
+                    )
+                else:
+                    truncated["context_note"] = f"Showing first 20 of {row_count} rows. Full data available to analyze_with_python tool."
+
+            return truncated
+
+        elif tool_name == "analyze_with_python":
+            # Python results are usually small dicts/lists, keep as-is
+            # But truncate if result is huge
+            result_data = result.get("result")
+            if isinstance(result_data, list) and len(result_data) > 50:
+                truncated = result.copy()
+                truncated["result"] = result_data[:50]
+                truncated["truncated_for_context"] = True
+                truncated["context_note"] = f"Showing first 50 of {len(result_data)} items"
+                return truncated
+            return result
+
+        else:
+            # Other tools: keep as-is for now
+            return result
+
+    def _summarize_result(self, tool_name: str, result: Dict[str, Any], arguments: Optional[Dict[str, Any]] = None) -> str:
+        """Create a rich summary of tool result for logging.
+
+        Args:
+            tool_name: Name of the tool executed
+            result: Result dict from tool execution
+            arguments: Optional arguments dict passed to the tool
+        """
         if "error" in result:
             return f"ERROR: {result['error']}"
 
         if tool_name == "execute_sql_query":
             row_count = result.get("row_count", 0)
             truncated = result.get("truncated", False)
-            return f"Found {row_count} rows{' (truncated to 100)' if truncated else ''}"
+            sql = result.get("sql_query", "")
+            nl_query = arguments.get("natural_language_query", "") if arguments else ""
+
+            # Sample first 2 rows for preview
+            rows = result.get("rows", [])
+            sample = ""
+            if rows:
+                first_row = rows[0]
+                sample = f"\n     First row sample: {str(first_row)[:150]}..."
+
+            summary = f"SQL Query\n     NL: {nl_query}\n     SQL: {sql[:200]}{'...' if len(sql) > 200 else ''}\n     Rows: {row_count}{' (truncated to 20k)' if truncated else ''}{sample}"
+            return summary
 
         elif tool_name == "get_related_documents":
             return (f"Found {len(result.get('meetings', []))} meetings, "
@@ -482,6 +615,65 @@ class MultiStepOrchestrator:
             r_count = len(result.get("committee_reports", []))
             return f"Context for {result.get('symbol')}: {d_count} drafts, {r_count} reports, {m_count} meetings"
 
+        elif tool_name == "analyze_with_python":
+            result_type = result.get("result_type", "unknown")
+            if result.get("error"):
+                return f"ERROR: {result['error']}"
+
+            code = arguments.get("code", "") if arguments else ""
+            code_preview = code[:150].replace("\n", " ") if code else ""
+
+            result_data = result.get("result")
+            result_preview = ""
+            data_sample = ""
+
+            if result_type == "dataframe":
+                shape = result.get("shape", [0, 0])
+                cols = result.get("columns", [])
+                result_preview = f"{shape[0]} rows x {shape[1]} cols, columns: {cols[:5]}{'...' if len(cols) > 5 else ''}"
+                # Show first 2 rows as sample
+                if result_data and len(result_data) > 0:
+                    sample_rows = result_data[:2]
+                    data_sample = "\n     Sample rows:\n"
+                    for i, row in enumerate(sample_rows):
+                        row_str = str(row)[:200]
+                        data_sample += f"       [{i}] {row_str}{'...' if len(str(row)) > 200 else ''}\n"
+            elif result_type == "dict":
+                if isinstance(result_data, dict):
+                    keys = list(result_data.keys())
+                    result_preview = f"dict with {len(keys)} keys: {keys[:5]}{'...' if len(keys) > 5 else ''}"
+                    # Show a sample of values
+                    data_sample = "\n     Sample values:\n"
+                    for k in keys[:3]:
+                        v = result_data[k]
+                        v_str = str(v)[:150]
+                        data_sample += f"       {k}: {v_str}{'...' if len(str(v)) > 150 else ''}\n"
+                else:
+                    result_preview = f"dict (unexpected structure)"
+            elif result_type == "list":
+                if isinstance(result_data, list):
+                    result_preview = f"list with {len(result_data)} items"
+                    # Show first 2 items
+                    if len(result_data) > 0:
+                        data_sample = "\n     Sample items:\n"
+                        for i, item in enumerate(result_data[:2]):
+                            item_str = str(item)[:200]
+                            data_sample += f"       [{i}] {item_str}{'...' if len(str(item)) > 200 else ''}\n"
+                else:
+                    result_preview = f"list (unexpected structure)"
+            elif result_type == "array":
+                shape = result.get("shape", [])
+                result_preview = f"numpy array, shape: {shape}"
+                if result_data:
+                    data_sample = f"\n     First values: {result_data[:10]}{'...' if len(result_data) > 10 else ''}\n"
+            else:
+                result_preview = f"type: {result_type}"
+                if result_data:
+                    data_sample = f"\n     Value: {str(result_data)[:300]}{'...' if len(str(result_data)) > 300 else ''}\n"
+
+            summary = f"Python Analysis\n     Code: {code_preview}...\n     Result: {result_preview}{data_sample}"
+            return summary
+
         else:
             # Generic summary
             return f"Keys: {list(result.keys())}"
@@ -489,6 +681,7 @@ class MultiStepOrchestrator:
     def _format_evidence_for_answer(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         """Convert tool outputs to query_results format expected by rag_qa."""
         rows = []
+        python_analysis_rows = []  # Collect these to prepend later
 
         # Add SQL query results (already in rows format)
         if "execute_sql_query" in evidence:
@@ -521,6 +714,31 @@ class MultiStepOrchestrator:
                             "vote_type": vote_type,
                             "actor_name": country, # rag_qa looks for 'name', 'actor_name', 'speaker_affiliation', 'country'
                             "vote_context": "plenary" # assumption for now, or could come from tool
+                        })
+
+        # Add Python analysis results as structured evidence (PREPEND so they're in first 100 rows)
+        if "analyze_with_python" in evidence:
+            for py_result in evidence["analyze_with_python"]:
+                if "error" in py_result:
+                    continue
+
+                # Extract the actual analysis result
+                analysis = py_result.get("result")
+                if isinstance(analysis, dict):
+                    # Format as a special row type for the synthesizer
+                    python_analysis_rows.append({
+                        "_type": "python_analysis",
+                        "_analysis_type": "coalition",
+                        "analysis_data": json.dumps(analysis)[:5000],  # Truncate if huge
+                        "summary": f"Coalition analysis: {analysis.get('n_countries', '?')} countries across {analysis.get('n_resolutions', '?')} resolutions"
+                    })
+                elif isinstance(analysis, list):
+                    # List of coalition pairs - add as multiple rows
+                    for item in analysis[:50]:  # Limit to top 50
+                        python_analysis_rows.append({
+                            "_type": "python_analysis",
+                            "_analysis_type": "coalition_pair",
+                            **item  # Spread the dict (country1, country2, correlation, etc.)
                         })
 
         # Add full text context evidence
@@ -665,10 +883,15 @@ class MultiStepOrchestrator:
                         "target_symbol": related.get("symbol")
                     })
 
+        # Python analysis was already handled above and added to python_analysis_rows
+
+        # PREPEND Python analysis rows so they're in the first 100 that rag_qa sees
+        all_rows = python_analysis_rows + rows
+
         return {
-            "columns": list(rows[0].keys()) if rows else [],
-            "rows": rows,
-            "row_count": len(rows),
+            "columns": list(all_rows[0].keys()) if all_rows else [],
+            "rows": all_rows,
+            "row_count": len(all_rows),
             "truncated": False
         }
 
@@ -716,6 +939,7 @@ class MultiStepOrchestrator:
                 "answer": "Unable to connect to the AI service. Please check your internet connection and try again.",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "connection_error",
                 "error_details": str(e),
@@ -728,6 +952,7 @@ class MultiStepOrchestrator:
                 "answer": "The request timed out. The service may be overloaded. Please try again.",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "timeout_error",
                 "error_details": str(e),
@@ -740,6 +965,7 @@ class MultiStepOrchestrator:
                 "answer": f"AI service error: {str(e)}",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "api_error",
                 "error_details": str(e),
@@ -752,6 +978,7 @@ class MultiStepOrchestrator:
                 "answer": f"Failed to execute the query: {str(e)}",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "execution_error",
                 "error_details": str(e),
@@ -779,6 +1006,7 @@ class MultiStepOrchestrator:
                 "answer": final_result["answer"],
                 "evidence": final_result["evidence"],
                 "sources": final_result["sources"],
+                "source_links": final_result.get("source_links", []),
                 "steps": steps_taken,
                 "row_count": result.get("row_count", 0),
                 # Include empty conversation state for consistency
@@ -792,6 +1020,7 @@ class MultiStepOrchestrator:
                 "answer": "Unable to connect to the AI service while generating the answer. Please check your internet connection and try again.",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "connection_error",
                 "error_details": str(e),
@@ -804,6 +1033,7 @@ class MultiStepOrchestrator:
                 "answer": "The request timed out while generating the answer. Please try again.",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "timeout_error",
                 "error_details": str(e),
@@ -816,6 +1046,7 @@ class MultiStepOrchestrator:
                 "answer": f"Found data but failed to generate an answer: {str(e)}",
                 "evidence": [],
                 "sources": [],
+                "source_links": [],
                 "steps": steps_taken,
                 "error": "synthesis_error",
                 "error_details": str(e),

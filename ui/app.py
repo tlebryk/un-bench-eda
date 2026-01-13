@@ -95,7 +95,7 @@ SAMPLE_QUERIES = [
 
 # Example questions for demo mode
 DEMO_QUESTIONS = [
-    "Why did countries vote against A/RES/78/220?",
+    "Why did countries vote against A/RES/78/244?",
     "Which countries abstained from voting on Iran-related resolutions in session 78?",
     "What did France say about climate change in plenary meetings?"]
 
@@ -469,7 +469,7 @@ def logout_get(next: str = "/"):
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def home(request: Request):
     demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
-    think_more_enabled = os.environ.get("THINK_MORE_ENABLED")
+    think_more_enabled = os.environ.get("THINK_MORE_ENABLED", "true")
     print(f"{think_more_enabled=}")
     return templates.TemplateResponse(
         "index.html",
@@ -1096,6 +1096,7 @@ def api_rag_answer(
                     "answer": result_dict["answer"],
                     "evidence": result_dict["evidence"],
                     "sources": result_dict["sources"],
+                    "source_links": result_dict.get("source_links", []),
                     "original_question": natural_language_query,
                     "sql": sql,
                     "row_count": result_dict.get("row_count", 0)
@@ -1167,6 +1168,7 @@ def api_rag_answer(
             "answer": rag_response["answer"],
             "evidence": rag_response["evidence"],
             "sources": rag_response["sources"],
+            "source_links": rag_response.get("source_links", []),
             "original_question": original_question,
             "sql": final_sql_query,
             "row_count": result.get("row_count", 0)
@@ -1279,6 +1281,7 @@ def api_multistep_answer(
             "answer": result["answer"],
             "evidence": result["evidence"],
             "sources": result["sources"],
+            "source_links": result.get("source_links", []),
             "steps": result["steps"],
             "row_count": len(result.get("evidence", []))
         }

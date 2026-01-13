@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Optional
 import logging
 from sqlalchemy import or_, text
+from rag.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -1018,8 +1019,10 @@ def execute_execute_sql_query(
             rows = result.fetchall()
 
         # Convert rows to list of dicts
+        # Limit to 20k rows for performance (enough for voting analysis, prevents memory issues)
+        row_limit = 15000
         row_dicts = []
-        for row in rows[:100]:  # Limit to 100 rows for performance
+        for row in rows[:row_limit]:
             row_dict = {}
             for col in columns:
                 value = row._mapping.get(col)
@@ -1037,7 +1040,8 @@ def execute_execute_sql_query(
             "rows": row_dicts,
             "row_count": len(rows),
             "sql_query": sql_query,
-            "truncated": len(rows) > 100
+            "natural_language_query": natural_language_query,
+            "truncated": len(rows) > row_limit
         }
 
     except Exception as e:
@@ -1046,6 +1050,7 @@ def execute_execute_sql_query(
             "columns": [],
             "rows": [],
             "row_count": 0,
+            "natural_language_query": natural_language_query,
             "error": str(e)
         }
 
@@ -1425,3 +1430,274 @@ def execute_get_full_text_context(symbol: str) -> Dict[str, Any]:
         }
     finally:
         session.close()
+
+
+# Tool 11: Analyze with Python
+# IMPORTANT: Do NOT write import statements - pd (pandas), np (numpy), and re (regular expressions) are already available.
+# The `df` variable is pre-populated as a pandas DataFrame with the most recent SQL query result.
+def analyze_with_python_tool() -> Dict[str, Any]:
+    """Execute Python analysis on data from previous tool calls."""
+    description = get_prompt("python_analysis")
+    
+    return {
+        "type": "function",
+        "name": "analyze_with_python",
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python code to execute. Must use `df` for input data and assign output to `result`."
+                },
+                "data_source": {
+                    "type": "string",
+                    "enum": ["last_sql", "all_sql", "votes", "utterances"],
+                    "description": "Which accumulated evidence to use as input. 'last_sql' uses most recent SQL result (default)."
+                }
+            },
+            "required": ["code"]
+        }
+    }
+
+
+def _build_dataframe_from_evidence(
+    data_source: str,
+    accumulated_evidence: Optional[Dict[str, List]] = None
+) -> Optional["pd.DataFrame"]:
+    """Build a pandas DataFrame from accumulated evidence.
+
+    Args:
+        data_source: Which evidence to use ('last_sql', 'all_sql', 'votes', 'utterances')
+        accumulated_evidence: Dict of accumulated tool results from orchestrator
+
+    Returns:
+        pandas DataFrame or None if no data available
+    """
+    import pandas as pd
+    import re
+    if not accumulated_evidence:
+        return None
+
+    rows = []
+
+    if data_source == "last_sql":
+        # Get most recent non-error SQL result
+        sql_results = accumulated_evidence.get("execute_sql_query", [])
+        for result in reversed(sql_results):
+            if "rows" in result and not result.get("error"):
+                rows = result["rows"]
+                break
+
+    elif data_source == "all_sql":
+        # Combine all SQL results
+        sql_results = accumulated_evidence.get("execute_sql_query", [])
+        for result in sql_results:
+            if "rows" in result and not result.get("error"):
+                rows.extend(result["rows"])
+
+    elif data_source == "votes":
+        # Get votes from get_votes tool
+        votes_results = accumulated_evidence.get("get_votes", [])
+        for votes_data in votes_results:
+            if votes_data.get("error"):
+                continue
+            symbol = votes_data.get("symbol")
+            for vote_type, countries in votes_data.get("votes", {}).items():
+                for country in countries:
+                    rows.append({
+                        "symbol": symbol,
+                        "country": country,
+                        "vote_type": vote_type
+                    })
+
+    elif data_source == "utterances":
+        # Get utterances from related tools
+        for tool_name in ["get_utterances", "get_related_utterances"]:
+            utt_results = accumulated_evidence.get(tool_name, [])
+            for utt_data in utt_results:
+                if utt_data.get("error"):
+                    continue
+                for utt in utt_data.get("utterances", []):
+                    rows.append(utt)
+
+    if not rows:
+        return None
+
+    return pd.DataFrame(rows)
+
+
+def _serialize_python_result(result: Any) -> Dict[str, Any]:
+    """Convert Python result to JSON-serializable dict.
+
+    Args:
+        result: The result from Python code execution
+
+    Returns:
+        Dict with 'result', 'result_type', and metadata
+    """
+    import pandas as pd
+    import numpy as np
+
+    if isinstance(result, pd.DataFrame):
+        # Convert DataFrame to list of records
+        return {
+            "result": result.head(100).to_dict(orient="records"),
+            "result_type": "dataframe",
+            "shape": list(result.shape),
+            "columns": list(result.columns),
+            "truncated": len(result) > 100
+        }
+    elif isinstance(result, pd.Series):
+        return {
+            "result": result.head(100).to_dict(),
+            "result_type": "series",
+            "length": len(result),
+            "truncated": len(result) > 100
+        }
+    elif isinstance(result, np.ndarray):
+        flat = result.flatten()
+        return {
+            "result": flat[:100].tolist(),
+            "result_type": "array",
+            "shape": list(result.shape),
+            "truncated": result.size > 100
+        }
+    elif isinstance(result, (dict, list, str, int, float, bool)):
+        return {
+            "result": result,
+            "result_type": type(result).__name__
+        }
+    else:
+        # Try to convert to string
+        return {
+            "result": str(result),
+            "result_type": "string"
+        }
+
+
+def _strip_import_statements(code: str) -> str:
+    """Strip common import statements from code.
+
+    LLMs sometimes include imports despite being told not to.
+    This pre-processes the code to remove them before exec().
+
+    Args:
+        code: Python code that may contain import statements
+
+    Returns:
+        Code with import statements removed
+    """
+    import re
+
+    # Patterns to remove (multiline-safe)
+    patterns = [
+        r'^import\s+(pandas|numpy|pd|np)\s*(as\s+\w+)?\s*$',  # import pandas, import numpy as np
+        r'^from\s+(pandas|numpy)\s+import\s+.*$',  # from pandas import ...
+    ]
+
+    lines = code.split('\n')
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        should_remove = any(re.match(p, stripped, re.IGNORECASE) for p in patterns)
+        if not should_remove:
+            cleaned.append(line)
+
+    return '\n'.join(cleaned)
+
+
+def execute_analyze_with_python(
+    code: str,
+    data_source: str = "last_sql",
+    accumulated_evidence: Optional[Dict[str, List]] = None
+) -> Dict[str, Any]:
+    """
+    Execute Python analysis in a sandboxed environment.
+
+    Args:
+        code: Python code to execute
+        data_source: Which evidence to use ('last_sql', 'all_sql', 'votes', 'utterances')
+        accumulated_evidence: Dict of accumulated tool results from orchestrator
+
+    Returns:
+        Dict with 'result', 'result_type', and optionally 'error'
+    """
+    import pandas as pd
+    import numpy as np
+    import re
+    logger.info(f"Executing Python analysis, data_source={data_source}")
+
+    # Build DataFrame from accumulated evidence
+    df = _build_dataframe_from_evidence(data_source, accumulated_evidence)
+
+    if df is None or df.empty:
+        return {
+            "error": "No data available for analysis. Run execute_sql_query first.",
+            "result": None,
+            "result_type": "error"
+        }
+
+    logger.info(f"Built DataFrame with shape {df.shape}, columns: {list(df.columns)}")
+
+    # No sandbox - trust AI-generated code
+    # Provide pandas, numpy, re, and the dataframe
+    exec_globals = {
+        "pd": pd,
+        "np": np,
+        "re": re,
+        "df": df,
+    }
+
+    # Local namespace for result
+    local_vars = {}
+
+    try:
+        # Execute user code directly - no restrictions
+        exec(code, exec_globals, local_vars)
+
+        # Extract result
+        result = local_vars.get("result")
+
+        # Validation: For coalition analysis, ensure multi-resolution analysis
+        # Check if result indicates single-resolution analysis
+        if isinstance(result, dict):
+            # Check for common single-resolution error pattern
+            if result.get('n_resolutions', 0) == 1 or result.get('n_resolutions', 100) < 5:
+                return {
+                    "error": f"Coalition analysis requires multiple resolutions. Your code only analyzed {result.get('n_resolutions', 1)} resolution(s). "
+                            f"The DataFrame has {df[res_col].nunique() if res_col in locals() else '?'} unique resolutions. "
+                            f"You must compute correlations ACROSS ALL resolutions, not analyze individual resolutions.",
+                    "hint": "Follow the example code pattern: deduplicate, pivot to country×resolution matrix, compute .T.corr() on the numeric matrix to get country-country correlations.",
+                    "result": None,
+                    "result_type": "validation_error"
+                }
+            # Check if analyzing vote distribution on single resolution
+            if 'vote_distribution' in result or 'resolution' in str(result).lower() and 'coalition' not in str(code).lower():
+                # Looks like single-resolution analysis
+                pass  # Could add more validation here
+
+        if result is None:
+            return {
+                "error": "Code executed but no 'result' variable was set. Assign your output to 'result'.",
+                "result": None,
+                "result_type": "error"
+            }
+
+        # Convert result to serializable format
+        return _serialize_python_result(result)
+
+    except SyntaxError as e:
+        logger.error(f"Python syntax error: {e}", exc_info=True)
+        return {
+            "error": f"Syntax error: {e}",
+            "result": None,
+            "result_type": "error"
+        }
+    except Exception as e:
+        logger.error(f"Python execution failed: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "result": None,
+            "result_type": "error"
+        }

@@ -1,0 +1,32 @@
+Execute Python code to analyze data from previous SQL queries. Assume the following is already loaded in the environment: `
+```python
+import pandas as pd
+import numpy as np
+import re
+# not actually how loaded but you get the point. 
+df = pd.read_csv('data.csv')
+```
+
+Use this when:
+- You need to perform statistical analysis (correlation, clustering, aggregation)
+- You need to transform/pivot data in ways not easily done in SQL
+- You need to find voting coalitions, patterns, or trends
+
+Example code (voting coalition - correlating COUNTRIES):
+```
+# Find country/resolution columns dynamically
+country_col = [c for c in df.columns if 'country' in c.lower() or 'name' in c.lower()][0]
+res_col = [c for c in df.columns if 'symbol' in c.lower() or 'resolution' in c.lower()][0]
+pivot = df.pivot_table(index=country_col, columns=res_col, values='vote_type', aggfunc='first')
+numeric = pivot.replace({'in_favour': 1, 'against': -1, 'abstaining': 0}).fillna(0)
+# CRITICAL: .T.corr() correlates ROWS (countries). Without .T, you correlate columns (resolutions)!
+corr = numeric.T.corr()
+pairs = []
+for i, c1 in enumerate(corr.columns):
+    for c2 in list(corr.columns)[i+1:]:
+        if corr.loc[c1, c2] > 0.7:
+            pairs.append({'country1': c1, 'country2': c2, 'correlation': round(corr.loc[c1, c2], 3)})
+result = sorted(pairs, key=lambda x: -x['correlation'])[:20]
+```
+
+Your code MUST assign the output to a variable named `result`.

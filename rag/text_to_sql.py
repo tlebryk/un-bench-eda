@@ -177,11 +177,15 @@ The current question may reference information from the conversation above (e.g.
 
         # Use standard OpenAI chat completions API
         prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + context_section + f"\n\nConvert this question to SQL: {natural_language_query}"
+        if len(prompt) > 1000:
+            logger.info(f"{prompt[:1000]} ... {prompt[-1000:]}")
+        else:
+            logger.info(prompt)
 
-        logger.info(f"FULL PROMPT TO OPENAI (length: {len(prompt)} chars):")
-        logger.info(f"{'='*80}")
-        logger.info(prompt)
-        logger.info(f"{'='*80}")
+        logger.debug(f"FULL PROMPT TO OPENAI (length: {len(prompt)} chars):")
+        logger.debug(f"{'='*80}")
+        logger.debug(prompt)
+        logger.debug(f"{'='*80}")
 
         result = client.chat.completions.create(
             model=model,
