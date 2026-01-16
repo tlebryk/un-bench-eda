@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from rag.text_to_sql import generate_sql
 from rag.rag_qa import answer_question
-from rag.prompt_config import load_prompt_config, get_default_model
+from rag.prompt_config import get_default_model
 from sqlalchemy import create_engine, text
 
 # Load environment variables

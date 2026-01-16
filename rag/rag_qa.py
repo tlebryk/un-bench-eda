@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ logger = get_logger(__name__, log_file="rag_qa.log")
 _client = None
 
 # Maximum number of results to include in evidence extraction
-MAX_RESULTS_FOR_EVIDENCE = 20
+MAX_RESULTS_FOR_EVIDENCE = 100
 
 
 def get_client():
@@ -102,6 +103,82 @@ def extract_evidence_context(
 
     logger.info(f"Extracted {len(evidence_list)} evidence items from query results")
     return evidence_list
+
+
+def _normalize_symbol(symbol: str) -> str:
+    """Normalize symbols like A_RES_78_220 -> A/RES/78/220 for matching."""
+    return symbol.strip().upper().replace("\\", "/").replace("_", "/")
+
+
+def _symbol_to_docs_url(symbol: str, language: str = "en") -> str:
+    """Fallback URL for documents.un.org API when metadata lacks direct files."""
+    return f"https://documents.un.org/api/symbol/access?s={symbol.replace('/RES/', '/res/')}&l={language}&t=pdf"
+
+
+def _pick_pdf_url(metadata: Optional[Any]) -> Optional[str]:
+    """Extract the best PDF URL from stored metadata."""
+    if not metadata:
+        return None
+
+    payload = metadata
+    if isinstance(metadata, str):
+        try:
+            payload = json.loads(metadata)
+        except Exception:
+            return None
+
+    files = payload.get("files")
+    if not files:
+        files = payload.get("metadata", {}).get("files")
+
+    if not files or not isinstance(files, list):
+        return None
+
+    def _lang(entry: Dict[str, Any]) -> str:
+        return (entry.get("language") or "").lower()
+
+    english_entry = next((f for f in files if "english" in _lang(f)), None)
+    entry = english_entry or files[0]
+    return entry.get("url")
+
+
+def _build_source_links(symbols: List[str]) -> List[Dict[str, str]]:
+    """Map document symbols to PDF URLs when available."""
+    if not symbols:
+        return []
+
+    normalized_symbols = {_normalize_symbol(sym) for sym in symbols if sym}
+    if not normalized_symbols:
+        return []
+
+    session = get_session()
+    try:
+        docs = (
+            session.query(Document)
+            .filter(Document.symbol.in_(list(normalized_symbols)))
+            .all()
+        )
+
+        symbol_url_map: Dict[str, str] = {}
+        for doc in docs:
+            if not doc.symbol:
+                continue
+            url = _pick_pdf_url(doc.doc_metadata)
+            if not url:
+                url = _symbol_to_docs_url(doc.symbol)
+            if url:
+                symbol_url_map[_normalize_symbol(doc.symbol)] = url
+
+        source_links: List[Dict[str, str]] = []
+        for sym in symbols:
+            normalized = _normalize_symbol(sym)
+            url = symbol_url_map.get(normalized)
+            if url:
+                source_links.append({"symbol": sym, "url": url})
+
+        return source_links
+    finally:
+        session.close()
 
 
 def fetch_missing_text(symbols: Set[str], utterance_ids: Optional[Set[int]] = None) -> Dict[str, Any]:
@@ -221,7 +298,7 @@ def answer_question(
     # Format evidence for prompt
     formatted_evidence = format_evidence_for_prompt(evidence_context)
 
-    # Extract sources (document symbols) - look for symbol-like columns
+    # Extract sources (document symbols) from query results
     sources = []
     for evidence in evidence_context:
         data = evidence.get("data", {})
@@ -232,6 +309,8 @@ def answer_question(
                 if '/' in value and any(c.isalpha() for c in value):
                     sources.append(value)
     sources = list(set(sources))  # Deduplicate
+
+    source_links = _build_source_links(sources)
 
     # Load prompt from registry
     from rag.prompt_registry import get_prompt
@@ -275,7 +354,8 @@ Answer:"""
         return {
             "answer": answer,
             "evidence": evidence_list,
-            "sources": sources
+            "sources": sources,
+            "source_links": source_links,
         }
     
     except Exception as e:
@@ -293,4 +373,3 @@ if __name__ == "__main__":
     
     print("This module is designed to be used programmatically.")
     print("Use answer_question(query_results, question) function directly.")
-

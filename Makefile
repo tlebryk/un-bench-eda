@@ -158,7 +158,7 @@ db-query:
 		echo "Error: SQL not specified"; \
 		exit 1; \
 	fi
-	@docker-compose exec postgres psql -U un_user -d un_documents -c "$(SQL)"
+	@docker-compose exec postgres psql -U un_user -d un_documents -P pager=off -c "$(SQL)"
 
 db-query-dev:
 	@echo "Usage: make db-query-dev SQL='SELECT * FROM resolutions LIMIT 5;'"
@@ -166,8 +166,7 @@ db-query-dev:
 		echo "Error: SQL not specified"; \
 		exit 1; \
 	fi
-	@docker-compose exec postgres_dev psql -U un_user -d un_documents_dev -c "$(SQL)"
-
+	@docker-compose exec postgres_dev psql -U un_user -d un_documents_dev -P pager=off -c "$(SQL)"
 # Cleanup
 clean:
 	@echo "Cleaning up..."

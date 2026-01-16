@@ -12,10 +12,11 @@ For the full research context, see [project.md](project.md).
 
 ## Documentation Map
 
+- [docs/rag.md](docs/rag.md) – RAG pipeline, multi-step agents, and **multi-turn conversations**
 - [docs/etl.md](docs/etl.md) – End-to-end ETL runbook (fetch → parse → load, QA, incident notes)
 - [docs/README_DATABASE.md](docs/README_DATABASE.md) – Schema details, meeting utterances storage, genealogy traversal
 - [docs/gym.md](docs/gym.md) & [docs/training_eval.md](docs/training_eval.md) – Gym internals, evaluation, world-model/IRL experiments
-- [docs/rag_enhancement_plan.md](docs/rag_enhancement_plan.md) – RAG + multi-step orchestration design and backlog
+- [docs/ui.md](docs/ui.md) – FastAPI UI routes, feature flags, and development workflow
 
 ## Dependency Management
 
@@ -373,6 +374,31 @@ data/
 - `docker-compose.yml` - Local development stack
 
 # UI
+
+Full FastAPI route + feature flag reference lives in [docs/ui.md](docs/ui.md). Use that doc for endpoint behavior when extending the UI; high-level features are summarized below, and RAG internals remain in [docs/rag.md](docs/rag.md).
+
+## Features
+
+The web UI provides an interactive chat interface for querying UN documents:
+
+- **Multi-Turn Conversations:** Ask follow-up questions that reference previous context
+  - *"Which countries voted against A/RES/78/220?"* → *"What did they say in meetings?"*
+  - Automatic pronoun resolution ("they", "these resolutions", "it")
+  - Session persistence in browser (cleared on "New Chat")
+
+- **Two Analysis Modes:**
+  - **⚡ Quick Answer:** Direct SQL query → Answer
+  - **🧠 Think More:** Multi-step agent with tool calling
+
+- **Transparency:**
+  - Collapsible SQL query section
+  - Data results table with CSV download
+  - Sources and research steps
+
+- **Chat Interface:**
+  - Input at bottom, messages grow upward
+  - Auto-continue sessions with "New Chat" button
+  - Real-time streaming responses
 
 ## Local Development
 

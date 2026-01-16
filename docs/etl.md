@@ -16,12 +16,16 @@ UN API (XML, HTML)       JSON metadata / parsed       SQLAlchemy loaders + BaseL
 
 ### Entry points
 
-**Note:** The ETL pipeline has 3 separate stages (Fetch → Parse → Load) that must be run independently.
+**Note:** The ETL pipeline runs in order: **fetch metadata XML → parse metadata JSON → download HTML/PDF assets → parse HTML/PDF → load**. Each step is a separate command.
 
-- `uv run python -m etl.run_etl --reset` – **Load stage only:** load all parsed JSON files into database (does NOT fetch or parse)
-- `uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports` – **Fetch stage:** download metadata XML from UN
-- `uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/` – **Parse stage:** convert HTML → JSON
-- `uv run python scripts/setup_db.py` – apply schema (see `db/models.py`)
+- `uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions committee-drafts committee-reports plenary-drafts meetings agenda voting` – **Fetch metadata XML**
+- `uv run python -m etl.parsing.parse_metadata data/raw/xml/session_78_resolutions.xml` – **Parse XML → JSON metadata**
+- `uv run python -m etl.fetch_download.download_metadata_html data/parsed/metadata/session_78_resolutions.json` – **Download HTML metadata pages (requires parsed JSON)**
+- `uv run python -m etl.fetch_download.download_pdfs data/parsed/metadata/session_78_resolutions.json` – **Download PDFs (requires parsed JSON)**
+- `uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/` – **Parse HTML → JSON**
+- `uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/` – **Parse PDFs → JSON**
+- `uv run python -m etl.run_etl --reset` – **Load parsed JSON into database**
+- `uv run -m db.setup_db --reset` – Initialize/reset schema (separate DB step, not part of parsing)
 
 All scripts rely on uv; configure targets via argparse flags (`--types`, `--session`, `--max-docs`, etc.).
 
@@ -31,27 +35,24 @@ All scripts rely on uv; configure targets via argparse flags (`--types`, `--sess
 
 ```
 etl/
-├── fetch_download/         # API requests + file downloads (Stage 1: Fetch)
-├── parsing/                # XML/HTML/PDF parsing (Stage 2: Parse)
+├── fetch_download/         # API requests + file downloads
+├── parsing/                # XML/HTML/PDF parsing
 ├── load_*.py               # SQL loaders per document type (classes, not runnable scripts)
 ├── trajectories/           # QA + genealogy helpers
 ├── validate_etl.py         # Cross-step validation utilities
-└── run_etl.py              # Stage 3: Load (calls load_*.py classes to insert parsed JSON into DB)
+└── run_etl.py              # Load orchestrator (calls load_*.py classes to insert parsed JSON into DB)
 ```
 
-### Loader hierarchy (`db/etl/*.py`)
+### Loader hierarchy (`etl/*.py`)
 ```
 BaseLoader (abstract logger/stats helpers)
- ├── DocumentLoader
- │    ├── ResolutionLoader
- │    ├── DraftLoader
- │    ├── MeetingLoader (builds utterances + votes + procedural events)
- │    ├── CommitteeReportLoader
- │    └── AgendaLoader
- └── ActorLoader (normalizes names and caches IDs)
+ ├── ResolutionLoader (etl/load_resolutions.py)
+ ├── DocumentLoader (drafts, committee reports, agenda) – etl/load_documents.py
+ ├── MeetingLoader (plenary) – etl/load_meetings.py
+ └── CommitteeMeetingLoader – etl/load_committee_meetings.py
 ```
 
-Key BaseLoader behaviors (see `db/etl/base_loader.py`):
+Key BaseLoader behaviors (see `etl/base.py`):
 - Validates JSON, logs per-file progress, and commits/rolls back per file to stay idempotent.
 - Computes hashes + symbol extraction helpers to avoid duplicates.
 - Emits structured stats (total/success/failed/skipped) and log files (`logs/etl_*.log`).
@@ -63,39 +64,42 @@ As of Jan 2026, the pipeline supports **procedural votes** (e.g., motions for di
 - **Goal:** Enable tracking of failed amendments and complex voting maneuvers that don't result in a final resolution document.
 
 ### Actor normalization
-`ActorLoader` loads cached actors from DB, applies normalization rules (e.g., *United States of America → United States*), and exposes `get_or_create_actor()` to other loaders. Aliases land in the JSONB metadata for future cleanup.
+`BaseLoader` caches actors from the DB, applies normalization rules (e.g., *United States of America → United States*), and exposes `get_or_create_actor()` / sponsor extraction helpers used by all loaders. Aliases land in JSONB metadata for future cleanup.
 
 ---
 
 ## 3. Runbook (Session 78 example)
 
-The ETL pipeline has 3 **SEPARATE** stages that must be run independently:
+The ETL pipeline is sequenced; do not skip steps.
 
-### Stage 1: Fetch (Download from UN website)
+### Stage 1: Fetch metadata (XML)
 
 ```bash
-# Fetch metadata XML
-uv run python -m etl.fetch_download.fetch_metadata 78 --types resolutions drafts committee-reports meetings agenda
+uv run python -m etl.fetch_download.fetch_metadata 78 \
+  --types resolutions committee-drafts plenary-drafts committee-reports meetings agenda voting
+```
 
-# Download HTML/PDF files
-uv run python -m etl.fetch_download.download_metadata_html data/raw/xml/session_78_resolutions.xml
+### Stage 2: Parse metadata (XML → JSON)
+
+```bash
+uv run python -m etl.parsing.parse_metadata data/raw/xml/session_78_resolutions.xml
+```
+
+### Stage 3: Download HTML + PDFs (requires parsed metadata JSON)
+
+```bash
+uv run python -m etl.fetch_download.download_metadata_html data/parsed/metadata/session_78_resolutions.json
 uv run python -m etl.fetch_download.download_pdfs data/parsed/metadata/session_78_resolutions.json
 ```
 
-### Stage 2: Parse (Convert files to JSON)
+### Stage 4: Parse HTML/PDF to structured JSON
 
 ```bash
-# Parse metadata (XML/HTML → JSON)
-uv run python -m etl.parsing.parse_metadata data/raw/xml/session_78_resolutions.xml
 uv run python -m etl.parsing.parse_metadata_html data/documents/html/committee-reports/
-
-# Parse PDFs (PDF → JSON)
-# IMPORTANT: Use DIRECTORY mode to ensure output goes to data/parsed/
 uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/
-# Outputs to: data/parsed/pdfs/meetings/ (auto-detected)
 ```
 
-### Stage 3: Load (JSON → PostgreSQL)
+### Stage 5: Load into PostgreSQL (parsed JSON → DB)
 
 ```bash
 # Single command loads ALL parsed JSON files
@@ -109,9 +113,9 @@ uv run python -m etl.run_etl --documents-only
 
 **Note:** The individual loaders (load_documents.py, load_meetings.py, etc.) are classes, not runnable scripts. They are called by run_etl.py. Do not try to invoke them directly with `python -m`.
 
-**Meeting relationships.** Both plenary (`MeetingLoader`) and committee (`CommitteeMeetingLoader`) jobs now inspect every utterance they ingest. Whenever an utterance links to a draft or resolution, the loader automatically creates/updates a `document_relationships` row with `relationship_type='meeting_record_for'` so you can traverse `resolution → meeting` (or `draft → meeting`) without hand-written joins through `utterance_documents`. Re-running the meeting loaders is enough to backfill the new relationships for older sessions.
+**Meeting relationships.** Both plenary (`MeetingLoader`) and committee (`CommitteeMeetingLoader`) jobs inspect every utterance they ingest. Whenever an utterance links to a draft or resolution, the loader automatically creates/updates a `document_relationships` row with `relationship_type='meeting_record_for'` so you can traverse `resolution → meeting` (or `draft → meeting`) without hand-written joins through `utterance_documents`. Committee summary records often reference resolutions as `A/78/282` (missing the `A/RES/...` prefix), so the loader resolves these to `A/RES/{session}/{number}` when possible before linking. The committee loader will also re-link existing utterances, so re-running meeting loaders will backfill relationships after parsing/linking changes.
 
-### Stage 4: Validate & QA
+### Post-load: Validate & QA
 
 ```bash
 uv run python -m etl.trajectories.qa_trajectories -n 50 --seed 42
@@ -187,7 +191,7 @@ uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/A_78
 - **Document-driven backfill:** `uv run python -m etl.trajectories.fill_missing_documents qa_results.json --download --parse` to grab referenced documents that weren’t caught by bulk queries.
 
 ### Validation checklist
-1. `etl.validate_etl` ensures every downloaded file was parsed, and every parsed file loaded.
+1. `etl.validate_etl` is deprecated and limited; use it only as a quick missing-parse check.
 2. `scripts/seed_dev_db.py` + integration tests exercise genealogy traversal and multi-step tooling against the dev DB.
 3. Logs: tail `logs/etl_*.log` for per-loader failures; `logs/multistep_tools.log` for downstream consumption health.
 
@@ -202,8 +206,8 @@ uv run python -m etl.parsing.parse_meeting_pdf data/documents/pdfs/meetings/A_78
 ---
 
 ## 7. References
-- Implementation: `etl/`, `db/etl/`, `scripts/setup_db.py`
-- Schema + downstream usage: `docs/README_DATABASE.md`, `docs/gym.md`, `docs/rag_enhancement_plan.md`
+- Implementation: `etl/`, `db/`, `db/setup_db.py`
+- Schema + downstream usage: `docs/README_DATABASE.md`, `docs/gym.md`, `docs/rag.md`
 - Tests: `tests/etl_tests/`, `tests/integration/`
 
 ---
@@ -219,4 +223,4 @@ When targeting a single General Assembly session (e.g., 78th), enumerate artifac
 5. **Meeting records:** combine plenary verbatim records `A/78/PV.*` and committee summary records `A/C.{1-6}/78/SR.*`. Resolution metadata and genealogy QA highlight the exact meeting codes you need.
 6. **Voting data:** `recordtype:Vote` filtered by session or symbol. Use these when the resolution metadata lacks vote breakdowns.
 
-Every download step should record counts (XML records fetched, HTML/PDF saved, JSON parsed) so `etl.validate_etl` can spot gaps immediately. The committee-report incident from January 2026 is a reminder: if a symbol appears in a resolution but not on disk, feed it into `etl.trajectories.fill_missing_documents` to backfill.
+Every download step should record counts (XML records fetched, HTML/PDF saved, JSON parsed) so quick validation/QA can spot gaps immediately. The committee-report incident from January 2026 is a reminder: if a symbol appears in a resolution but not on disk, feed it into `etl.trajectories.fill_missing_documents` to backfill.

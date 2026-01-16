@@ -1,7 +1,7 @@
 """Load meetings and extract voting records and utterances from parsed PDF meetings"""
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from etl.base import BaseLoader
 from db.models import Document, Vote, Utterance, UtteranceDocument, VoteEvent, DocumentRelationship
 import re
@@ -167,6 +167,9 @@ class MeetingLoader(BaseLoader):
                     if procedural_events:
                         votes_extracted += self._extract_procedural_events(utterance, procedural_events, doc)
 
+        # Backfill meeting relationships from already-linked utterance documents
+        self._backfill_meeting_relationships(doc)
+
         if utterances_extracted > 0 or votes_extracted > 0:
             self.stats["loaded"] += 1
             print(f"  {symbol}: Extracted {utterances_extracted} utterances, {votes_extracted} votes")
@@ -265,6 +268,10 @@ class MeetingLoader(BaseLoader):
             
             # Find the document in database
             doc = self.session.query(Document).filter_by(symbol=doc_symbol).first()
+            if not doc:
+                doc_symbol = self._resolve_resolution_symbol(doc_symbol)
+                if doc_symbol:
+                    doc = self.session.query(Document).filter_by(symbol=doc_symbol).first()
             
             if doc and doc.id not in linked_doc_ids:
                 # Check if link already exists
@@ -311,6 +318,73 @@ class MeetingLoader(BaseLoader):
                         linked_documents.append(resolution_doc)
 
         return linked_documents
+
+    def _resolve_resolution_symbol(self, doc_symbol: str) -> Optional[str]:
+        """
+        Resolve document symbols to their canonical resolution form.
+
+        IMPORTANT: A/78/XXX documents are committee reports/secretariat notes,
+        NOT resolution references. Only resolve explicit A/RES/ patterns.
+
+        Examples:
+        - A/RES/78/240 → None (already in canonical form)
+        - A/78/240 → None (committee report, do NOT convert to A/RES/78/240)
+        - A/78/282 → None (committee report, do NOT convert to A/RES/78/282)
+
+        This prevents spurious cross-committee links where:
+        - A/78/240 = Secretariat note about torture fund (C.3)
+        - A/RES/78/240 = Nuclear weapons resolution (C.1)
+        """
+        if not doc_symbol:
+            return None
+        if doc_symbol.startswith("A/RES/"):
+            return None
+
+        # DON'T auto-resolve A/78/XXX patterns - these are committee reports,
+        # not resolution references. The previous behavior created spurious links.
+        match = re.fullmatch(r"A/(\d+)/(\d+)", doc_symbol)
+        if match:
+            return None
+
+        return None
+
+    def _backfill_meeting_relationships(self, meeting_doc: Document):
+        """
+        Ensure meeting_record_for edges exist for any documents already linked via utterance_documents.
+        This catches cases where utterance links were created before the related resolution/draft was in the DB.
+        """
+        linked_doc_rows = (
+            self.session.query(UtteranceDocument.document_id)
+            .join(Utterance, Utterance.id == UtteranceDocument.utterance_id)
+            .filter(Utterance.meeting_id == meeting_doc.id)
+            .distinct()
+            .all()
+        )
+
+        seen_ids = set()
+        for (doc_id,) in linked_doc_rows:
+            if not doc_id or doc_id in seen_ids:
+                continue
+
+            doc = self.session.query(Document).get(doc_id)
+            if not doc or doc.doc_type not in {"resolution", "draft", "committee_report"}:
+                continue
+
+            existing = self.session.query(DocumentRelationship).filter_by(
+                source_id=meeting_doc.id,
+                target_id=doc.id,
+                relationship_type="meeting_record_for"
+            ).first()
+
+            if not existing:
+                rel = DocumentRelationship(
+                    source_id=meeting_doc.id,
+                    target_id=doc.id,
+                    relationship_type="meeting_record_for"
+                )
+                self.session.add(rel)
+
+            seen_ids.add(doc_id)
 
     def _ensure_meeting_relationships(self, meeting_doc: Document,
                                       linked_docs: List[Document],

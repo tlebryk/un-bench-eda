@@ -19,9 +19,13 @@ dependencies = [
     "requests>=2.32.5",
     # AI/ML (for RAG)
     "openai>=1.0.0",
+    "tiktoken>=0.5.0",
+    # Vector DB
+    "pgvector>=0.2.0",
     # Utilities
     "python-dotenv>=1.0.0",
     "numpy>=1.26.0",
+    "pandas>=2.0.0",
     "matplotlib>=3.7.0",
     "rich>=13.0.0",
     "jitter>=0.1.18",

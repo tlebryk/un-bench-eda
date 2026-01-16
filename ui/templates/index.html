@@ -18,73 +18,79 @@
             <h1>UNGA Research Tool</h1>
             <div class="mode-switcher">
                 {% if demo_mode %}
-                <span class="current-mode">Standard Mode</span>
+                <!-- <span class="current-mode">Standard Mode</span>
                 <span class="separator">|</span>
-                <a href="/?demo=false">Switch to Expert SQL Mode</a>
+                <a href="/?demo=false">Switch to Expert SQL Mode</a> -->
                 {% else %}
                 <a href="/?demo=true">Switch to Standard Mode</a>
                 <span class="separator">|</span>
                 <span class="current-mode">Expert SQL Mode</span>
                 {% endif %}
+                <span class="separator">|</span>
+                <button type="button" id="new-chat-btn" class="btn btn-secondary btn-sm" style="display: none;">+ New Chat</button>
             </div>
         </header>
 
-        <div class="card search-wrapper">
-            <h2>Ask a question about UN resolutions</h2>
-
-            <form method="post" action="/text-to-sql?demo={{ 'true' if demo_mode else 'false' }}" data-loading="Analyzing query..." id="search-form">
-                <input type="hidden" name="execute" value="true">
-                <div class="search-input-group">
-                    <input type="text" name="natural_language_query"
-                           placeholder="e.g. Show me resolutions voted against by the USA in 2023..."
-                           value="{{ natural_language_query or '' }}" autocomplete="off">
-
-                    <button type="submit" class="btn btn-primary">
-                        Search
-                    </button>
+        <!-- Chat Layout Container -->
+        <div class="chat-layout">
+            <!-- Chat Messages Container - grows to fill space -->
+            <div id="chat-messages" class="chat-messages">
+                <!-- Welcome message when empty -->
+                <div id="welcome-message" class="welcome-message">
+                    <h2>Ask a question about UN resolutions</h2>
+                    {% if think_more_enabled %}
+                    <p class="helper-text">Quick Answer: Direct SQL result. Think More: AI agent iterates on your query for deeper insights.</p>
+                    {% endif %}
+                    {% if demo_mode and demo_questions %}
+                    <div class="chips-row">
+                        <p>Example questions:</p>
+                        {% for question in demo_questions %}
+                        <button type="button" class="chip demo-question-chip" data-question="{{ question | e }}">
+                            {{ question }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
+            </div>
 
-                <!-- RAG Mode Selector -->
-                <div class="research-mode-selector">
-                    <span class="mode-label">Research Mode:</span>
-                    <label>
-                        <input type="radio" name="rag_mode" value="simple" checked>
-                        <span class="mode-name">⚡ Quick Answer</span>
-                        <span class="mode-description">(Single query)</span>
-                    </label>
-                    <label>
-                        <input type="radio" name="rag_mode" value="multistep">
-                        <span class="mode-name">🔬 Deep Research</span>
-                        <span class="mode-description">(Multi-step exploration)</span>
-                    </label>
+            <!-- Input at bottom -->
+            <div class="chat-input-wrapper card">
+                {% if error %}
+                <div class="summary-box" style="background: var(--error-bg); border-color: var(--error-border); color: var(--error-text); margin-bottom: var(--space-sm);">
+                    <strong>Error:</strong> {{ error }}
                 </div>
-            </form>
-            <p class="helper-text">Quick Answer: Direct SQL query. Deep Research: AI agent explores multiple sources step-by-step.</p>
+                {% endif %}
 
-            {% if demo_mode and demo_questions %}
-            <div class="chips-row">
-                <p>Example questions:</p>
-                {% for question in demo_questions %}
-                <button type="button" class="chip demo-question-chip" data-question="{{ question | e }}">
-                    {{ question }}
-                </button>
-                {% endfor %}
-            </div>
-            {% elif not demo_mode and samples %}
-            <div class="chips-row">
-                {% for sample in samples %}
-                <button type="button" class="chip" data-sql="{{ sample | e }}">
-                    {{ sample[:60] }}{% if sample|length > 60 %}...{% endif %}
-                </button>
-                {% endfor %}
-            </div>
-            {% endif %}
+                <form method="post" action="/text-to-sql?demo={{ 'true' if demo_mode else 'false' }}" data-loading="Analyzing query..." id="search-form">
+                    <input type="hidden" name="execute" value="true">
+                    <input type="hidden" name="conversation_id" id="conversation-id-input" value="">
+                    <div class="search-input-group">
+                        <input type="text" name="natural_language_query"
+                               placeholder="Ask about UN resolutions..."
+                               value="{{ natural_language_query or '' }}" autocomplete="off">
 
-            {% if error %}
-            <div class="summary-box" style="background: var(--error-bg); border-color: var(--error-border); color: var(--error-text);">
-                <strong>Error:</strong> {{ error }}
+                        <button type="submit" class="btn btn-primary">
+                            Send
+                        </button>
+                    </div>
+
+                    <!-- RAG Mode Selector -->
+                    {% if think_more_enabled %}
+                    <div class="research-mode-selector">
+                        <span class="mode-label">Mode:</span>
+                        <label title="Direct answer using a single generated SQL query">
+                            <input type="radio" name="mode" value="fast" checked>
+                            <span class="mode-name">⚡ Quick</span>
+                        </label>
+                        <label title="Agentic reasoning that can explore multiple sources and self-correct">
+                            <input type="radio" name="mode" value="deep">
+                            <span class="mode-name">🧠 Think More</span>
+                        </label>
+                    </div>
+                    {% endif %}
+                </form>
             </div>
-            {% endif %}
         </div>
 
         {% if rag_answer %}
@@ -127,15 +133,36 @@
             </details>
             {% endif %}
 
+            {% set direct_links = rag_answer.source_links or [] %}
+            {% set ns = namespace(fallback=[]) %}
             {% if rag_answer.sources %}
+                {% for source in rag_answer.sources %}
+                    {% set already = direct_links | selectattr('symbol', 'equalto', source) | list %}
+                    {% if already|length == 0 %}
+                        {% set ns.fallback = ns.fallback + [source] %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            {% set total_sources = direct_links|length + ns.fallback|length %}
+            {% if total_sources > 0 %}
             <details>
-                <summary>Sources ({{ rag_answer.sources|length }})</summary>
+                <summary>Sources ({{ total_sources }})</summary>
                 <div>
-                    {% for source in rag_answer.sources %}
-                    <span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block; cursor: pointer;"
-                          onclick="window.open('https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=' + encodeURIComponent('{{ source }}'), '_blank')">
+                    {% for source in direct_links %}
+                    <a class="badge badge-pdf"
+                       style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;"
+                       href="{{ source.url }}"
+                       target="_blank" rel="noopener noreferrer">
+                        {{ source.symbol }}
+                    </a>
+                    {% endfor %}
+                    {% for source in ns.fallback %}
+                    <a class="badge badge-pdf"
+                       style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;"
+                       href="https://digitallibrary.un.org/search?ln=en&amp;cc=Voting+Data&amp;p={{ source | urlencode }}"
+                       target="_blank" rel="noopener noreferrer">
                         {{ source }}
-                    </span>
+                    </a>
                     {% endfor %}
                 </div>
             </details>
@@ -260,11 +287,13 @@
         </details>
         {% endif %}
 
-        {% if demo_mode and sql_query %}
+        {% if not demo_mode and sql_query %}
         <div class="card sql-demo-view">
             <details>
+                {% if not demo_mode %}
                 <summary>View Generated SQL (Demo)</summary>
                 <pre>{{ sql_query }}</pre>
+                {% endif %}
             </details>
         </div>
         {% endif %}
@@ -297,39 +326,428 @@
     {% endif %}
 
     <script>
-        // 0. Route form based on RAG mode
-        const searchForm = document.getElementById('search-form');
-        if (searchForm) {
-            searchForm.addEventListener('submit', (e) => {
-                const ragMode = document.querySelector('input[name="rag_mode"]:checked')?.value || 'simple';
-                
-                // preserve demo param
-                const currentAction = searchForm.getAttribute('action');
-                let demoParam = '';
-                if (currentAction.includes('demo=true')) {
-                    demoParam = '?demo=true';
-                } else if (currentAction.includes('demo=false')) {
-                    demoParam = '?demo=false';
+        // Conversation State Management
+        const ConversationManager = {
+            STORAGE_KEY: 'rag_conversation_id',
+
+            get() {
+                return sessionStorage.getItem(this.STORAGE_KEY);
+            },
+
+            set(conversationId) {
+                sessionStorage.setItem(this.STORAGE_KEY, conversationId);
+                document.getElementById('conversation-id-input').value = conversationId;
+                document.getElementById('new-chat-btn').style.display = 'inline-block';
+            },
+
+            clear() {
+                sessionStorage.removeItem(this.STORAGE_KEY);
+                document.getElementById('conversation-id-input').value = '';
+                document.getElementById('new-chat-btn').style.display = 'none';
+                // Clear chat messages but keep welcome message
+                const chatMessages = document.getElementById('chat-messages');
+                const welcomeMsg = document.getElementById('welcome-message');
+                // Remove all chat messages (but not welcome)
+                chatMessages.querySelectorAll('.chat-message').forEach(msg => msg.remove());
+                // Show welcome message again
+                if (welcomeMsg) {
+                    welcomeMsg.style.display = 'block';
+                }
+            },
+
+            init() {
+                const existingId = this.get();
+                if (existingId) {
+                    document.getElementById('conversation-id-input').value = existingId;
+                    document.getElementById('new-chat-btn').style.display = 'inline-block';
+                }
+            }
+        };
+
+        // Initialize conversation state on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            ConversationManager.init();
+        });
+
+        // New Chat button handler
+        document.getElementById('new-chat-btn')?.addEventListener('click', () => {
+            ConversationManager.clear();
+            // Also clear any existing answer card from server-rendered content
+            const existingAnswer = document.querySelector('.answer-card');
+            if (existingAnswer) {
+                existingAnswer.remove();
+            }
+        });
+
+        // Helper function to append a message to chat
+        function appendMessage(role, content, isLoading = false) {
+            const messagesContainer = document.getElementById('chat-messages');
+
+            // Hide welcome message when first message is sent
+            const welcomeMsg = document.getElementById('welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.style.display = 'none';
+            }
+
+            const msgId = 'msg-' + Date.now();
+            const div = document.createElement('div');
+            div.id = msgId;
+            div.className = `chat-message ${role}-message`;
+            if (isLoading) {
+                div.innerHTML = `<div class="message-content"><span class="loading-spinner"></span> ${content}</div>`;
+            } else {
+                div.innerHTML = `<div class="message-content">${content}</div>`;
+            }
+            messagesContainer.appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+            return msgId;
+        }
+
+        // Helper function to update a message
+        function updateMessage(msgId, content) {
+            const div = document.getElementById(msgId);
+            if (div) {
+                const messageContent = div.querySelector('.message-content');
+                if (messageContent) {
+                    messageContent.innerHTML = content;
+                }
+            }
+        }
+
+        // Store SQL results for download
+        let lastQueryResults = null;
+
+        // Format answer HTML from API response
+        function formatAnswerHTML(data) {
+            if (!data) {
+                return '<div class="error-message" style="color: var(--error-text); background: var(--error-bg); padding: var(--space-md); border-radius: var(--radius-md); border: 1px solid var(--error-border);">No response received from the server.</div>';
+            }
+
+            // Check for error field and display appropriate error message
+            if (data.error) {
+                const errorIcons = {
+                    'connection_error': '🌐',
+                    'timeout_error': '⏱️',
+                    'api_error': '⚠️',
+                    'execution_error': '❌',
+                    'synthesis_error': '🔧',
+                    'unexpected_error': '⚠️'
+                };
+                const icon = errorIcons[data.error] || '❌';
+                const errorTitle = {
+                    'connection_error': 'Connection Error',
+                    'timeout_error': 'Request Timeout',
+                    'api_error': 'Service Error',
+                    'execution_error': 'Query Error',
+                    'synthesis_error': 'Processing Error',
+                    'unexpected_error': 'Unexpected Error'
+                }[data.error] || 'Error';
+
+                let html = `<div class="error-message" style="color: var(--error-text); background: var(--error-bg); padding: var(--space-md); border-radius: var(--radius-md); border: 1px solid var(--error-border);">
+                    <div style="font-weight: 600; margin-bottom: var(--space-xs);">${icon} ${errorTitle}</div>
+                    <div>${escapeHtml(data.answer)}</div>`;
+
+                // Show error details in a collapsible section for debugging
+                if (data.error_details) {
+                    html += `<details style="margin-top: var(--space-sm); font-size: var(--font-size-sm); opacity: 0.8;">
+                        <summary style="cursor: pointer;">Technical Details</summary>
+                        <pre style="margin-top: var(--space-xs); padding: var(--space-xs); background: rgba(0,0,0,0.1); border-radius: var(--radius-sm); overflow-x: auto;">${escapeHtml(data.error_details)}</pre>
+                    </details>`;
                 }
 
-                if (ragMode === 'multistep') {
-                    // Route to multi-step orchestrator
-                    searchForm.action = '/multistep-answer' + demoParam;
-                } else {
-                    // Route to simple text-to-sql
-                    searchForm.action = '/text-to-sql' + demoParam;
+                html += '</div>';
+                return html;
+            }
+
+            const answer = data.answer || 'No answer provided';
+            let html = `<div class="answer-content">${escapeHtml(answer).replace(/\n/g, '<br>')}</div>`;
+
+            // Extract SQL query and results from steps
+            let sqlQuery = data.sql || null;
+            let sqlResult = null;
+
+            if (data.steps && data.steps.length > 0) {
+                const sqlStep = data.steps.find(s => s.tool === 'execute_sql_query');
+                if (sqlStep && sqlStep.result) {
+                    sqlResult = sqlStep.result;
+                    sqlQuery = sqlQuery || sqlResult.sql_query;
+                    // Store for download
+                    lastQueryResults = sqlResult;
+                }
+            }
+
+            // SQL Query section
+            if (sqlQuery) {
+                html += `<details><summary>SQL Query</summary>
+                    <pre style="background: var(--bg-tertiary); padding: var(--space-sm); border-radius: var(--radius-sm); overflow-x: auto; margin-top: var(--space-sm); font-size: var(--font-size-sm);">${escapeHtml(sqlQuery)}</pre>
+                </details>`;
+            }
+
+            // Data Results section
+            if (sqlResult && sqlResult.rows && sqlResult.rows.length > 0) {
+                const columns = sqlResult.columns || Object.keys(sqlResult.rows[0]);
+                const rows = sqlResult.rows;
+                const rowCount = sqlResult.row_count || rows.length;
+                const truncated = sqlResult.truncated || rows.length < rowCount;
+
+                html += `<details><summary>Data Results (${rowCount} rows${truncated ? ', showing ' + rows.length : ''})</summary>
+                    <div style="margin-top: var(--space-sm);">
+                        <button type="button" class="btn btn-secondary btn-sm download-results-btn" style="margin-bottom: var(--space-sm);">Download CSV</button>
+                        <div style="overflow-x: auto;">
+                            <table class="results-table" style="font-size: var(--font-size-sm);">
+                                <thead><tr>`;
+
+                columns.forEach(col => {
+                    html += `<th>${escapeHtml(col)}</th>`;
+                });
+
+                html += `</tr></thead><tbody>`;
+
+                // Show max 10 rows in preview
+                const previewRows = rows.slice(0, 10);
+                previewRows.forEach(row => {
+                    html += '<tr>';
+                    columns.forEach(col => {
+                        const val = row[col];
+                        const displayVal = val !== null && val !== undefined ? String(val) : '';
+                        const truncatedVal = displayVal.length > 100 ? displayVal.substring(0, 100) + '...' : displayVal;
+                        html += `<td>${escapeHtml(truncatedVal)}</td>`;
+                    });
+                    html += '</tr>';
+                });
+
+                if (rows.length > 10) {
+                    html += `<tr><td colspan="${columns.length}" style="text-align: center; font-style: italic;">... and ${rows.length - 10} more rows</td></tr>`;
+                }
+
+                html += `</tbody></table></div></div></details>`;
+            }
+
+            // Sources section
+            const sourcesSection = renderSourcesSection(data);
+            if (sourcesSection) {
+                html += sourcesSection;
+            }
+
+            // Research Steps section
+            if (data.steps && data.steps.length > 0) {
+                html += `<details><summary>Research Steps (${data.steps.length})</summary><div style="margin-top: var(--space-sm);">`;
+                data.steps.forEach((step, i) => {
+                    html += `<div class="research-step" style="margin-bottom: var(--space-xs);">${i+1}. ${step.tool || 'unknown'}`;
+                    if (step.execution_time) {
+                        html += ` <span style="color: var(--text-secondary);">(${step.execution_time.toFixed(2)}s)</span>`;
+                    }
+                    html += '</div>';
+                });
+                html += '</div></details>';
+            }
+
+            return html;
+        }
+
+        // Helper to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function buildSourceBadge(symbol, directUrl) {
+            let label = symbol;
+            let linkUrl = directUrl;
+
+            if (typeof symbol === 'object' && symbol !== null) {
+                label = symbol.symbol || symbol.display || '';
+                linkUrl = linkUrl || symbol.url;
+            }
+
+            if (label === undefined || label === null) {
+                label = '';
+            }
+
+            label = String(label).trim();
+            if (!label) {
+                return '';
+            }
+
+            if (!linkUrl) {
+                linkUrl = `https://digitallibrary.un.org/search?ln=en&cc=Voting+Data&p=${encodeURIComponent(label)}`;
+            }
+
+            return `<a class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;" href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+        }
+
+        function renderSourcesSection(data) {
+            if (!data) {
+                return '';
+            }
+
+            const links = Array.isArray(data.source_links) ? data.source_links : [];
+            const symbols = Array.isArray(data.sources) ? data.sources : [];
+            const seen = new Set();
+            let badges = '';
+
+            links.forEach(link => {
+                if (!link || !link.symbol) {
+                    return;
+                }
+                seen.add(link.symbol);
+                badges += buildSourceBadge(link.symbol, link.url);
+            });
+
+            symbols.forEach(symbol => {
+                if (!symbol || seen.has(symbol)) {
+                    return;
+                }
+                seen.add(symbol);
+                badges += buildSourceBadge(symbol);
+            });
+
+            if (!badges) {
+                return '';
+            }
+
+            return `<details><summary>Sources (${seen.size})</summary><div style="margin-top: var(--space-sm);">${badges}</div></details>`;
+        }
+
+        // Handle download button clicks (delegated)
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('download-results-btn')) {
+                if (!lastQueryResults || !lastQueryResults.rows) {
+                    alert('No data available to download');
+                    return;
+                }
+                downloadCSV(lastQueryResults);
+            }
+        });
+
+        // Download results as CSV
+        function downloadCSV(result) {
+            const columns = result.columns || Object.keys(result.rows[0]);
+            const rows = result.rows;
+
+            let csv = columns.map(c => `"${c.replace(/"/g, '""')}"`).join(',') + '\n';
+            rows.forEach(row => {
+                csv += columns.map(col => {
+                    const val = row[col];
+                    if (val === null || val === undefined) return '';
+                    return `"${String(val).replace(/"/g, '""')}"`;
+                }).join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'query-results.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        // Helper function to fetch with timeout
+        async function fetchWithTimeout(url, options, timeout = 600000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timed out after 10 minutes. The query may be too complex.');
+                }
+                throw error;
+            }
+        }
+
+        // 0. Route form based on mode - now uses AJAX
+        const searchForm = document.getElementById('search-form');
+        if (searchForm) {
+            searchForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                e.stopImmediatePropagation(); // Prevent generic loading handler from running
+
+                const formData = new FormData(searchForm);
+                const query = formData.get('natural_language_query');
+
+                if (!query || !query.trim()) {
+                    return;
+                }
+
+                // Get input element
+                const queryInput = searchForm.querySelector('input[name="natural_language_query"]');
+
+                // Show user message immediately
+                appendMessage('user', query);
+
+                // Clear input immediately after showing message
+                queryInput.value = '';
+
+                // Show loading state in chat
+                const loadingId = appendMessage('assistant', 'Thinking...', true);
+
+                // Ensure loading overlay is hidden
+                document.getElementById('loading-overlay').classList.remove('active');
+
+                try {
+                    console.log('Sending request to /api/multistep-answer');
+                    const response = await fetchWithTimeout('/api/multistep-answer', {
+                        method: 'POST',
+                        body: formData
+                    }, 600000);
+                    console.log('Response received:', response.status);
+
+                    let data;
+                    try {
+                        data = await response.json();
+                        console.log('Parsed response:', data);
+                    } catch (parseError) {
+                        console.error('Parse error:', parseError);
+                        throw new Error('Failed to parse response');
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+
+                    // Update conversation ID for future requests
+                    if (data.conversation_id) {
+                        ConversationManager.set(data.conversation_id);
+                    }
+
+                    // Replace loading with actual response
+                    console.log('Updating message:', loadingId);
+                    const answerHtml = formatAnswerHTML(data);
+                    console.log('Answer HTML length:', answerHtml.length);
+                    updateMessage(loadingId, answerHtml);
+                    console.log('Message updated');
+
+                } catch (error) {
+                    console.error('Chat error:', error);
+                    updateMessage(loadingId, `<div class="error-message" style="color: var(--error-text);">Error: ${error.message}</div>`);
+                } finally {
+                    // Always ensure loading overlay is hidden
+                    document.getElementById('loading-overlay').classList.remove('active');
                 }
             });
         }
 
-        // 1. Handling Demo Question Chips
+        // 1. Handling Demo Question Chips - now use AJAX too
         document.querySelectorAll('.demo-question-chip').forEach(btn => {
             btn.addEventListener('click', () => {
                 const question = btn.dataset.question;
                 const input = document.querySelector('input[name="natural_language_query"]');
                 if (input) {
                     input.value = question;
-                    input.closest('form').submit();
+                    // Trigger form submit which now uses AJAX
+                    input.closest('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                 }
             });
         });
@@ -412,16 +830,9 @@
                     
                     if(!res.ok) throw new Error(data.error || 'Error');
 
-                    let sourcesHtml = '';
-                    if(data.sources && data.sources.length > 0) {
-                        sourcesHtml = `<details><summary>Sources (${data.sources.length})</summary><div>`;
-                        data.sources.forEach(source => {
-                            sourcesHtml += `<span class="badge badge-pdf" style="margin-right: var(--space-xs); margin-bottom: var(--space-xs); display: inline-block;">${source}</span>`;
-                        });
-                        sourcesHtml += '</div></details>';
-                    }
+                    const sourcesHtml = renderSourcesSection(data);
 
-                    container.innerHTML = `<div class="answer-card"><h3>Answer</h3><div class="answer-content">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}</div>`;
+                    container.innerHTML = `<div class="answer-card"><h3>Answer</h3><div class="answer-content">${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml || ''}</div>`;
                     answerBtn.innerText = 'Answered';
                 } catch(e) {
                     container.innerHTML = `<div class="summary-box" style="background:var(--error-bg); color:var(--error-text)">${e.message}</div>`;

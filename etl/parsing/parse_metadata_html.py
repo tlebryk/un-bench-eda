@@ -397,6 +397,8 @@ def detect_document_type(input_dir: Path) -> str:
         return 'meetings'
     elif 'voting' in parts:
         return 'voting'
+    elif 'committee-summary-records' in parts or 'committee_summary_records' in parts:
+        return 'committee-summary-records'
     else:
         return 'other'
 

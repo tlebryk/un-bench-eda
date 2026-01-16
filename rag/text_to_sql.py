@@ -5,7 +5,7 @@ import sys
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from dotenv import load_dotenv
 from openai import OpenAI
 import yaml
@@ -129,7 +129,12 @@ def validate_sql(sql: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def generate_sql(natural_language_query: str, model: Optional[str] = None, validate: bool = True) -> Optional[str]:
+def generate_sql(
+    natural_language_query: str,
+    model: Optional[str] = None,
+    validate: bool = True,
+    conversation_context: Optional[str] = None
+) -> Optional[str]:
     """
     Convert a natural language query to SQL using OpenAI.
 
@@ -137,6 +142,7 @@ def generate_sql(natural_language_query: str, model: Optional[str] = None, valid
         natural_language_query: The natural language question
         model: OpenAI model to use (default: configured model)
         validate: Whether to validate the generated SQL for security (default: True)
+        conversation_context: Optional string with previous Q&A for multi-turn context
 
     Returns:
         SQL query string or None if generation fails
@@ -149,12 +155,38 @@ def generate_sql(natural_language_query: str, model: Optional[str] = None, valid
         model = DEFAULT_MODEL
 
     logger.info(f"Generating SQL from natural language query (model: {model}): {natural_language_query}")
+    if conversation_context:
+        logger.info(f"With conversation context provided")
+        logger.info(f"CONVERSATION CONTEXT (full):\n{conversation_context}")
+    else:
+        logger.info("No conversation context (first turn)")
 
     client = get_client()
 
     try:
+        # Build context section if we have previous conversation
+        context_section = ""
+        if conversation_context:
+            context_section = f"""
+
+CONVERSATION HISTORY:
+{conversation_context}
+
+The current question may reference information from the conversation above (e.g., "that resolution", "those countries").
+"""
+
         # Use standard OpenAI chat completions API
-        prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + f"\n\nConvert this question to SQL: {natural_language_query}"
+        prompt = SYSTEM_PROMPT + "\n\n" + SCHEMA_DESCRIPTION + context_section + f"\n\nConvert this question to SQL: {natural_language_query}"
+        if len(prompt) > 1000:
+            logger.info(f"{prompt[:1000]} ... {prompt[-1000:]}")
+        else:
+            logger.info(prompt)
+
+        logger.debug(f"FULL PROMPT TO OPENAI (length: {len(prompt)} chars):")
+        logger.debug(f"{'='*80}")
+        logger.debug(prompt)
+        logger.debug(f"{'='*80}")
+
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],

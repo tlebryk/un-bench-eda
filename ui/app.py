@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Set, Optional
 import re
 from urllib.parse import quote, urlparse
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, Form, Request, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -27,6 +28,14 @@ from db.models import Document
 from rag.text_to_sql import generate_sql
 from rag.rag_summarize import summarize_results
 from rag.rag_qa import answer_question
+from rag.multistep.orchestrator import MultiStepOrchestrator
+from rag.conversation_manager import (
+    create_conversation, get_conversation,
+    save_simple_turn, save_multistep_state, SimpleTurn
+)
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Set up logging
 from utils.logging_config import get_logger
@@ -86,11 +95,9 @@ SAMPLE_QUERIES = [
 
 # Example questions for demo mode
 DEMO_QUESTIONS = [
-    "Why did countries vote against A/RES/78/220?",
+    "Why did countries vote against A/RES/78/244?",
     "Which countries abstained from voting on Iran-related resolutions in session 78?",
-    "What did France say about climate change in plenary meetings?",
-    "Show me all resolutions about human rights in session 78",
-]
+    "What did France say about climate change in plenary meetings?"]
 
 app = FastAPI(title="UN Documents SQL UI", description="Text-heavy SQL workbench for the UN database")
 
@@ -102,14 +109,21 @@ else:
     logger.error(f"Cannot mount static files: directory {STATIC_DIR} does not exist")
 
 # Authentication setup (feature flag controlled)
+# Feature flags: Set to 'true' or 'false' in env. These are parsed as booleans.
+# Example: ENABLE_AUTH=false will disable auth, ENABLE_AUTH=true will enable it
 ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'
 SHARED_PASSWORD = os.getenv('SHARED_PASSWORD', '')
 SESSION_COOKIE_NAME = "ui_session"
 SESSION_COOKIE_MAX_AGE = 12 * 60 * 60  # 12 hours
+ENABLE_MULTITURN = os.getenv('ENABLE_MULTITURN', 'true').lower() == 'true'
 
 # RAG prompt style configuration
 RAG_PROMPT_STYLE = os.getenv('RAG_PROMPT_STYLE', 'analytical')
 logger.info(f"📝 RAG prompt style: {RAG_PROMPT_STYLE}")
+
+# Demo mode configuration
+DEMO_MODE_DEFAULT = os.getenv('DEMO_MODE', 'true').lower() == 'true'
+logger.info(f"🎭 Demo mode default: {DEMO_MODE_DEFAULT}")
 
 if ENABLE_AUTH and not SHARED_PASSWORD:
     raise RuntimeError("ENABLE_AUTH is true but SHARED_PASSWORD is not set")
@@ -454,7 +468,9 @@ def logout_get(next: str = "/"):
 
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def home(request: Request):
-    demo_mode = request.query_params.get("demo", "true").lower() == "true"
+    demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
+    think_more_enabled = os.environ.get("THINK_MORE_ENABLED", "true")
+    print(f"{think_more_enabled=}")
     return templates.TemplateResponse(
         "index.html",
         {
@@ -465,6 +481,7 @@ def home(request: Request):
             "samples": SAMPLE_QUERIES,
             "natural_language_query": "",
             "demo_mode": demo_mode,
+            "think_more_enabled": think_more_enabled,
             "demo_questions": DEMO_QUESTIONS,
             "rag_answer": None,
         },
@@ -473,7 +490,7 @@ def home(request: Request):
 
 @app.post("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def run_query(request: Request, sql_query: str = Form(...)):
-    demo_mode = request.query_params.get("demo", "true").lower() == "true"
+    demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
     sql_query = sql_query.strip()
     logger.info(f"Direct SQL query: {sql_query}")
     
@@ -583,69 +600,107 @@ def rag_answer_query(
     result_json: str = Form(None)
 ):
     """Answer a question using RAG with evidence grounding (HTML response)."""
-    demo_mode = request.query_params.get("demo", "true").lower() == "true"
+    demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
     
     try:
         result = None
         final_sql_query = sql_query
-        
-        # If natural language query provided, generate and execute SQL
-        if natural_language_query:
-            if not sql_query:
-                final_sql_query = generate_sql(natural_language_query)
-                logger.info(f"Generated SQL: {final_sql_query}")
-            
-            if final_sql_query:
-                allowed, message = is_query_allowed(final_sql_query)
-                if not allowed:
-                    return templates.TemplateResponse(
-                        "index.html",
-                        {
-                            "request": request,
-                            "sql_query": final_sql_query,
-                            "result": None,
-                            "error": f"Query not allowed: {message}",
-                            "samples": SAMPLE_QUERIES,
-                            "natural_language_query": natural_language_query,
-                            "demo_mode": demo_mode,
-                            "demo_questions": DEMO_QUESTIONS,
-                            "rag_answer": None,
-                        },
-                        status_code=400,
-                    )
+        rag_answer = None
+
+        # New: Use Orchestrator for pure natural language queries
+        if natural_language_query and not sql_query and not result_json:
+            try:
+                logger.info(f"Using Orchestrator (Fast Mode) for: {natural_language_query}")
+                orch = MultiStepOrchestrator()
+                # Use fast mode to replicate "regular" pipeline
+                rag_answer = orch.answer_multistep(natural_language_query, mode="fast")
                 
-                result = execute_sql(final_sql_query)
-                logger.info(f"SQL executed - Rows: {result['row_count']}")
-        
-        elif result_json:
-            result = json.loads(result_json)
-        
-        if not result:
-            return templates.TemplateResponse(
-                "index.html",
-                {
-                    "request": request,
-                    "sql_query": sql_query or "",
-                    "result": None,
-                    "error": "Either natural_language_query or result_json must be provided",
-                    "samples": SAMPLE_QUERIES,
-                    "natural_language_query": natural_language_query or "",
-                    "demo_mode": demo_mode,
-                    "demo_questions": DEMO_QUESTIONS,
-                    "rag_answer": None,
-                },
-                status_code=400,
+                # Extract SQL and Result from the steps for UI display
+                sql_step = next((s for s in rag_answer.get("steps", []) if s["tool"] == "execute_sql_query"), None)
+                
+                if sql_step and "result" in sql_step:
+                    result = sql_step["result"]
+                    final_sql_query = result.get("sql_query")
+                    logger.info(f"Orchestrator generated SQL: {final_sql_query}")
+                
+            except Exception as exc:
+                logger.error(f"Orchestrator fast mode failed: {str(exc)}", exc_info=True)
+                # Fall through to legacy method or show error
+                return templates.TemplateResponse(
+                    "index.html",
+                    {
+                        "request": request,
+                        "sql_query": "",
+                        "result": None,
+                        "error": f"Analysis failed: {str(exc)}",
+                        "samples": SAMPLE_QUERIES,
+                        "natural_language_query": natural_language_query,
+                        "demo_mode": demo_mode,
+                        "demo_questions": DEMO_QUESTIONS,
+                        "rag_answer": None,
+                    },
+                    status_code=500,
+                )
+
+        # Legacy/Expert Path: If SQL/JSON provided OR if we haven't run yet
+        elif natural_language_query or result_json:
+            # If natural language query provided, generate and execute SQL
+            if natural_language_query and not result:
+                if not sql_query:
+                    final_sql_query = generate_sql(natural_language_query)
+                    logger.info(f"Generated SQL: {final_sql_query}")
+                
+                if final_sql_query:
+                    allowed, message = is_query_allowed(final_sql_query)
+                    if not allowed:
+                        return templates.TemplateResponse(
+                            "index.html",
+                            {
+                                "request": request,
+                                "sql_query": final_sql_query,
+                                "result": None,
+                                "error": f"Query not allowed: {message}",
+                                "samples": SAMPLE_QUERIES,
+                                "natural_language_query": natural_language_query,
+                                "demo_mode": demo_mode,
+                                "demo_questions": DEMO_QUESTIONS,
+                                "rag_answer": None,
+                            },
+                            status_code=400,
+                        )
+                    
+                    result = execute_sql(final_sql_query)
+                    logger.info(f"SQL executed - Rows: {result['row_count']}")
+            
+            elif result_json:
+                result = json.loads(result_json)
+            
+            if not result:
+                return templates.TemplateResponse(
+                    "index.html",
+                    {
+                        "request": request,
+                        "sql_query": sql_query or "",
+                        "result": None,
+                        "error": "Either natural_language_query or result_json must be provided",
+                        "samples": SAMPLE_QUERIES,
+                        "natural_language_query": natural_language_query or "",
+                        "demo_mode": demo_mode,
+                        "demo_questions": DEMO_QUESTIONS,
+                        "rag_answer": None,
+                    },
+                    status_code=400,
+                )
+            
+            original_question = natural_language_query or "Answer based on these results"
+            
+            # Call RAG Q&A
+            rag_answer = answer_question(
+                query_results=result,
+                original_question=original_question,
+                sql_query=final_sql_query,
+                prompt_style=RAG_PROMPT_STYLE
             )
-        
-        original_question = natural_language_query or "Answer based on these results"
-        
-        # Call RAG Q&A
-        rag_answer = answer_question(
-            query_results=result,
-            original_question=original_question,
-            sql_query=final_sql_query,
-            prompt_style=RAG_PROMPT_STYLE
-        )
         
         return templates.TemplateResponse(
             "index.html",
@@ -655,7 +710,7 @@ def rag_answer_query(
                 "result": result,
                 "error": None,
                 "samples": SAMPLE_QUERIES,
-                "natural_language_query": original_question,
+                "natural_language_query": natural_language_query or "",
                 "demo_mode": demo_mode,
                 "demo_questions": DEMO_QUESTIONS,
                 "rag_answer": rag_answer,
@@ -789,7 +844,7 @@ def api_text_to_sql(natural_language_query: str = Form(None), execute: bool = Fo
 @app.post("/text-to-sql", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def text_to_sql_query(request: Request, natural_language_query: str = Form(None), execute: bool = Form(False)):
     """Convert natural language to SQL and optionally execute it."""
-    demo_mode = request.query_params.get("demo", "true").lower() == "true"
+    demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
     if not natural_language_query:
         return templates.TemplateResponse(
             "index.html",
@@ -964,23 +1019,111 @@ def api_summarize(
 def api_rag_answer(
     natural_language_query: str = Form(None),
     sql_query: str = Form(None),
-    result_json: str = Form(None)
+    result_json: str = Form(None),
+    conversation_id: Optional[str] = Form(None)
 ):
     """
     Answer a question using RAG with evidence grounding.
-    
+
     Accepts either:
     - natural_language_query: Generate SQL, execute, then answer
     - sql_query + result_json: Use existing query results to answer
-    
+
     Returns structured answer with citations.
     """
-    logger.info(f"RAG Q&A API request - NL: {natural_language_query}, SQL: {sql_query}")
-    
+    logger.info(f"RAG Q&A API request - NL: {natural_language_query}, SQL: {sql_query}, conversation_id: {conversation_id}")
+
     try:
+        # New: Use Orchestrator (Fast Mode) for pure natural language queries
+        if natural_language_query and not sql_query and not result_json:
+            # Handle conversation state
+            conv = None
+            simple_turns = None
+
+            if ENABLE_MULTITURN and conversation_id:
+                # Validate existing conversation
+                conv = get_conversation(conversation_id)
+                if not conv:
+                    return JSONResponse(
+                        {"error": f"Invalid conversation_id: {conversation_id}"},
+                        status_code=400
+                    )
+                if conv.rag_type != "simple":
+                    return JSONResponse(
+                        {"error": f"Conversation type mismatch: expected 'simple', got '{conv.rag_type}'"},
+                        status_code=400
+                    )
+                simple_turns = conv.simple_turns
+                logger.info(f"Continuing conversation {conversation_id}, turn {conv.total_turns + 1}")
+            elif ENABLE_MULTITURN:
+                # Create new conversation
+                conv = create_conversation("simple")
+                logger.info(f"Created new conversation {conv.conversation_id}")
+
+            try:
+                orch = MultiStepOrchestrator()
+                result_dict = orch.answer_multistep(
+                    natural_language_query,
+                    mode="fast",
+                    simple_turns=simple_turns
+                )
+
+                # Extract SQL for response
+                sql = None
+                sql_step = next((s for s in result_dict.get("steps", []) if s["tool"] == "execute_sql_query"), None)
+                if sql_step and "result" in sql_step:
+                    sql = sql_step["result"].get("sql_query")
+
+                # Extract symbols from sources
+                new_symbols = set(result_dict.get("sources", []))
+
+                # Save turn to conversation
+                if ENABLE_MULTITURN and conv:
+                    from datetime import datetime
+                    turn = SimpleTurn(
+                        turn_number=conv.total_turns + 1,
+                        timestamp=datetime.utcnow(),
+                        question=natural_language_query,
+                        sql_query=sql,
+                        query_results={"row_count": result_dict.get("row_count", 0)},
+                        answer=result_dict["answer"],
+                        evidence=result_dict["evidence"],
+                        sources=result_dict["sources"]
+                    )
+                    save_simple_turn(conv.conversation_id, turn, new_symbols)
+
+                response_payload = {
+                    "answer": result_dict["answer"],
+                    "evidence": result_dict["evidence"],
+                    "sources": result_dict["sources"],
+                    "source_links": result_dict.get("source_links", []),
+                    "original_question": natural_language_query,
+                    "sql": sql,
+                    "row_count": result_dict.get("row_count", 0)
+                }
+
+                # Include error fields if present
+                if "error" in result_dict:
+                    response_payload["error"] = result_dict["error"]
+                if "error_details" in result_dict:
+                    response_payload["error_details"] = result_dict["error_details"]
+
+                if ENABLE_MULTITURN and conv:
+                    response_payload.update({
+                        "conversation_id": conv.conversation_id,
+                        "turn_number": conv.total_turns,
+                        "previous_symbols": list(conv.active_symbols)
+                    })
+                return response_payload
+            except Exception as exc:
+                logger.error(f"Orchestrator fast mode failed: {str(exc)}", exc_info=True)
+                # Fall through to legacy on error or return specific error?
+                return JSONResponse({"error": str(exc)}, status_code=500)
+
         result = None
         final_sql_query = sql_query
         
+        # Legacy/Expert path
         # If natural language query provided, generate and execute SQL
         if natural_language_query:
             if not sql_query:
@@ -1025,6 +1168,7 @@ def api_rag_answer(
             "answer": rag_response["answer"],
             "evidence": rag_response["evidence"],
             "sources": rag_response["sources"],
+            "source_links": rag_response.get("source_links", []),
             "original_question": original_question,
             "sql": final_sql_query,
             "row_count": result.get("row_count", 0)
@@ -1040,38 +1184,136 @@ def api_rag_answer(
 # Multi-step RAG endpoints
 
 @app.post("/api/multistep-answer", dependencies=[Depends(require_auth)])
-def api_multistep_answer(natural_language_query: str = Form(...)):
-    """Multi-step RAG with automatic tool selection."""
+def api_multistep_answer(
+    natural_language_query: str = Form(...),
+    mode: str = Form("fast"),
+    conversation_id: Optional[str] = Form(None)
+):
+    """Multi-step RAG with automatic tool selection and conversation support."""
     from rag.multistep.orchestrator import MultiStepOrchestrator
 
-    logger.info(f"Multi-step query: {natural_language_query}")
+    logger.info(f"Multi-step query: {natural_language_query}, mode: {mode}, conversation_id: {conversation_id}")
 
     try:
-        orchestrator = MultiStepOrchestrator()
-        result = orchestrator.answer_multistep(natural_language_query)
+        # Handle conversation state
+        conv = None
+        conversation_history = None
+        simple_turns = None
 
-        return {
+        if ENABLE_MULTITURN and conversation_id:
+            # Validate existing conversation
+            conv = get_conversation(conversation_id)
+            if not conv:
+                return JSONResponse(
+                    {"error": f"Invalid conversation_id: {conversation_id}"},
+                    status_code=400
+                )
+            if conv.rag_type != "multistep":
+                return JSONResponse(
+                    {"error": f"Conversation type mismatch: expected 'multistep', got '{conv.rag_type}'"},
+                    status_code=400
+                )
+
+            # Get conversation state based on mode
+            if mode == "fast":
+                # Fast mode uses simple turns (Q&A text)
+                simple_turns = conv.simple_turns if conv.simple_turns else None
+                logger.info(f"Continuing conversation {conversation_id}, turn {conv.total_turns + 1}")
+                logger.info(f"  Mode: fast")
+                logger.info(f"  Previous simple_turns: {len(simple_turns) if simple_turns else 0}")
+            else:
+                # Deep mode uses OpenAI input_list
+                conversation_history = conv.multistep_input_list if conv.multistep_input_list else None
+                logger.info(f"Continuing conversation {conversation_id}, turn {conv.total_turns + 1}")
+                logger.info(f"  Mode: deep")
+                logger.info(f"  Has conversation_history: {conversation_history is not None}")
+                if conversation_history:
+                    logger.info(f"  Conversation history length: {len(conversation_history)}")
+        elif ENABLE_MULTITURN:
+            # Create new conversation
+            conv = create_conversation("multistep")
+            logger.info(f"Created new conversation {conv.conversation_id} (type: multistep, mode: {mode})")
+
+        logger.info(f"Calling orchestrator.answer_multistep:")
+        logger.info(f"  mode={mode}")
+        logger.info(f"  simple_turns={'provided' if simple_turns else 'None'}")
+        logger.info(f"  conversation_history={'provided' if conversation_history else 'None'}")
+
+        orchestrator = MultiStepOrchestrator()
+        result = orchestrator.answer_multistep(
+            natural_language_query,
+            mode=mode,
+            conversation_history=conversation_history,
+            simple_turns=simple_turns
+        )
+
+        # Extract symbols from sources for context tracking
+        new_symbols = set(result.get("sources", []))
+
+        # Save conversation state
+        if ENABLE_MULTITURN and conv:
+            if mode == "fast":
+                # For fast mode, save as SimpleTurn (for Q&A context)
+                from datetime import datetime
+                turn = SimpleTurn(
+                    turn_number=conv.total_turns + 1,
+                    timestamp=datetime.utcnow(),
+                    question=natural_language_query,
+                    sql_query=None,  # Can extract from steps if needed
+                    query_results={},
+                    answer=result["answer"],
+                    evidence=result["evidence"],
+                    sources=result["sources"]
+                )
+                save_simple_turn(conv.conversation_id, turn, new_symbols)
+                logger.info(f"Saved fast mode turn {turn.turn_number} to conversation {conv.conversation_id}")
+            else:
+                # For deep mode, save full OpenAI state
+                save_multistep_state(
+                    conversation_id=conv.conversation_id,
+                    input_list=result.get("input_list", []),
+                    accumulated_evidence=result.get("accumulated_evidence", {}),
+                    new_symbols=new_symbols
+                )
+                logger.info(f"Saved deep mode state to conversation {conv.conversation_id}")
+
+        response_payload = {
             "answer": result["answer"],
             "evidence": result["evidence"],
             "sources": result["sources"],
+            "source_links": result.get("source_links", []),
             "steps": result["steps"],
             "row_count": len(result.get("evidence", []))
         }
+
+        # Include error fields if present
+        if "error" in result:
+            response_payload["error"] = result["error"]
+        if "error_details" in result:
+            response_payload["error_details"] = result["error_details"]
+
+        if ENABLE_MULTITURN and conv:
+            response_payload.update({
+                "conversation_id": conv.conversation_id,
+                "turn_number": conv.total_turns,
+                "previous_symbols": list(conv.active_symbols)
+            })
+        return response_payload
     except Exception as exc:
         logger.error(f"Multi-step query failed: {str(exc)}", exc_info=True)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/multistep-answer", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
-def multistep_answer_html(request: Request, natural_language_query: str = Form(...)):
+def multistep_answer_html(request: Request, natural_language_query: str = Form(...), mode: str = Form("fast")):
     """HTML version of multi-step RAG."""
     from rag.multistep.orchestrator import MultiStepOrchestrator
 
-    demo_mode = request.query_params.get("demo", "true").lower() == "true"
+    demo_mode = request.query_params.get("demo", str(DEMO_MODE_DEFAULT).lower()).lower() == "true"
 
     try:
         orchestrator = MultiStepOrchestrator()
-        result = orchestrator.answer_multistep(natural_language_query)
+        result = orchestrator.answer_multistep(natural_language_query, mode=mode)
 
         return templates.TemplateResponse(
             "index.html",
