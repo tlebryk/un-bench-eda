@@ -1576,37 +1576,6 @@ def _serialize_python_result(result: Any) -> Dict[str, Any]:
         }
 
 
-def _strip_import_statements(code: str) -> str:
-    """Strip common import statements from code.
-
-    LLMs sometimes include imports despite being told not to.
-    This pre-processes the code to remove them before exec().
-
-    Args:
-        code: Python code that may contain import statements
-
-    Returns:
-        Code with import statements removed
-    """
-    import re
-
-    # Patterns to remove (multiline-safe)
-    patterns = [
-        r'^import\s+(pandas|numpy|pd|np)\s*(as\s+\w+)?\s*$',  # import pandas, import numpy as np
-        r'^from\s+(pandas|numpy)\s+import\s+.*$',  # from pandas import ...
-    ]
-
-    lines = code.split('\n')
-    cleaned = []
-    for line in lines:
-        stripped = line.strip()
-        should_remove = any(re.match(p, stripped, re.IGNORECASE) for p in patterns)
-        if not should_remove:
-            cleaned.append(line)
-
-    return '\n'.join(cleaned)
-
-
 def execute_analyze_with_python(
     code: str,
     data_source: str = "last_sql",
@@ -1626,6 +1595,10 @@ def execute_analyze_with_python(
     import pandas as pd
     import numpy as np
     import re
+    import scipy
+    import scipy.cluster.hierarchy as hierarchy
+    import scipy.spatial.distance as distance
+    import networkx as nx
     logger.info(f"Executing Python analysis, data_source={data_source}")
 
     # Build DataFrame from accumulated evidence
@@ -1640,34 +1613,54 @@ def execute_analyze_with_python(
 
     logger.info(f"Built DataFrame with shape {df.shape}, columns: {list(df.columns)}")
 
-    # No sandbox - trust AI-generated code
-    # Provide pandas, numpy, re, and the dataframe
-    exec_globals = {
-        "pd": pd,
-        "np": np,
-        "re": re,
-        "df": df,
-    }
-
-    # Local namespace for result
-    local_vars = {}
-
     try:
+        # Execute code in a single shared namespace so helper functions
+        # can access intermediate variables (e.g., pivot tables).
+        exec_env = {
+            "pd": pd,
+            "np": np,
+            "re": re,
+            "df": df,
+            # Clustering and community detection
+            "scipy": scipy,
+            "hierarchy": hierarchy,  # scipy.cluster.hierarchy
+            "distance": distance,    # scipy.spatial.distance
+            "nx": nx,                # networkx
+        }
+
         # Execute user code directly - no restrictions
-        exec(code, exec_globals, local_vars)
+        exec(code, exec_env)
 
         # Extract result
-        result = local_vars.get("result")
+        result = exec_env.get("result")
 
         # Validation: For coalition analysis, ensure multi-resolution analysis
         # Check if result indicates single-resolution analysis
         if isinstance(result, dict):
             # Check for common single-resolution error pattern
             if result.get('n_resolutions', 0) == 1 or result.get('n_resolutions', 100) < 5:
+                # Best-effort guess of the column holding resolution symbols
+                resolution_col = next(
+                    (col for col in [
+                        'resolution_symbol',
+                        'symbol',
+                        'document_symbol',
+                    ] if col in df.columns),
+                    None,
+                )
+                df_unique_resolutions = (
+                    int(df[resolution_col].nunique())
+                    if resolution_col
+                    else "?"
+                )
+
                 return {
-                    "error": f"Coalition analysis requires multiple resolutions. Your code only analyzed {result.get('n_resolutions', 1)} resolution(s). "
-                            f"The DataFrame has {df[res_col].nunique() if res_col in locals() else '?'} unique resolutions. "
-                            f"You must compute correlations ACROSS ALL resolutions, not analyze individual resolutions.",
+                    "error": (
+                        "Coalition analysis requires multiple resolutions. "
+                        f"Your code only analyzed {result.get('n_resolutions', 1)} resolution(s). "
+                        f"The DataFrame has {df_unique_resolutions} unique resolutions. "
+                        "You must compute correlations ACROSS ALL resolutions, not analyze individual resolutions."
+                    ),
                     "hint": "Follow the example code pattern: deduplicate, pivot to country×resolution matrix, compute .T.corr() on the numeric matrix to get country-country correlations.",
                     "result": None,
                     "result_type": "validation_error"

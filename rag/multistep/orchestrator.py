@@ -205,7 +205,7 @@ class MultiStepOrchestrator:
                     else:
                         logger.info("OAI call (input: %s chars)", self._estimate_input_chars(input_list))
 
-                    response = self.client.responses.create(
+                    response = self.client.na(
                         model=self.model,
                         tools=self.tools,
                         input=input_list,
